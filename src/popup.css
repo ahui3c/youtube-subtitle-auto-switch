@@ -47,6 +47,21 @@ h1 {
 
 h2 { font-size: 16px; margin: 0; }
 
+.feature-title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; }
+.vip-badge {
+  background: linear-gradient(135deg, #ffe08a, #dcae3f);
+  border: 1px solid rgba(255, 224, 138, .78);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(220, 174, 63, .2);
+  color: #241900;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .06em;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
 .master-switch, .inline-switch {
   align-items: center;
   cursor: pointer;

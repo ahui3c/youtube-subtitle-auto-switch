@@ -4,6 +4,7 @@
   const Core = globalThis.YTLangCore;
   const enabled = document.getElementById("enabled");
   const embeddedDetection = document.getElementById("embeddedDetection");
+  const skipEmbeddedDetectionForSimplifiedOnly = document.getElementById("skipEmbeddedDetectionForSimplifiedOnly");
   const priorityList = document.getElementById("priority-list");
   const saveStatus = document.getElementById("save-status");
   const routeStatus = document.getElementById("route-status");
@@ -139,6 +140,7 @@
   function renderSettings() {
     enabled.checked = settings.enabled;
     embeddedDetection.checked = settings.embeddedDetection;
+    skipEmbeddedDetectionForSimplifiedOnly.checked = settings.skipEmbeddedDetectionForSimplifiedOnly;
     taiwanTermsEnabled.checked = settings.taiwanTermsEnabled;
     hongKongColloquialEnabled.checked = settings.hongKongColloquialEnabled;
     const localMode = settings.simplifiedMode === "opencc";
@@ -262,7 +264,9 @@
     routeStatus.textContent = status.sourceName || planLabels[status.planType] || "字幕規則已就緒";
     routeDetail.textContent = planLabels[status.planType] || "等待套用";
     if (status.targetName) routeDetail.textContent += ` · ${status.targetName}`;
-    if (status.embeddedDetected) {
+    if (status.detectionSkipReason === "simplified-only") {
+      detectorStatus.textContent = "已略過 · 只有簡體 CC、沒有繁體字幕";
+    } else if (status.embeddedDetected) {
       detectorStatus.textContent = "已判定有內嵌字幕，CC 已關閉";
     } else if (status.detectionComplete) {
       detectorStatus.textContent = `取樣完成 · ${status.detectionSamples || 0} 段 · 未判定有內嵌字幕`;
@@ -287,6 +291,14 @@
 
   embeddedDetection.addEventListener("change", async () => {
     settings = Core.mergeSettings({ ...settings, embeddedDetection: embeddedDetection.checked });
+    await save();
+  });
+
+  skipEmbeddedDetectionForSimplifiedOnly.addEventListener("change", async () => {
+    settings = Core.mergeSettings({
+      ...settings,
+      skipEmbeddedDetectionForSimplifiedOnly: skipEmbeddedDetectionForSimplifiedOnly.checked
+    });
     await save();
   });
 

@@ -58,7 +58,10 @@
       <div class="section-heading">
         <div>
           <p class="kicker">字幕文字後處理</p>
-          <h2 id="terms-title">地區用語轉換</h2>
+          <div class="feature-title-row">
+            <h2 id="terms-title">地區用語轉換</h2>
+            <span class="vip-badge">VIP 功能</span>
+          </div>
         </div>
       </div>
       <div class="option-row">
@@ -77,7 +80,10 @@
       <div class="section-heading">
         <div>
           <p class="kicker">最高覆寫優先權</p>
-          <h2 id="custom-title">自訂詞彙替換</h2>
+          <div class="feature-title-row">
+            <h2 id="custom-title">自訂詞彙替換</h2>
+            <span class="vip-badge">VIP 功能</span>
+          </div>
         </div>
         <label class="inline-switch"><input id="customReplacementsEnabled" type="checkbox" aria-label="啟用自訂詞彙替換"><span aria-hidden="true"></span></label>
       </div>
@@ -104,6 +110,10 @@
         </label>
       </div>
       <p class="hint">只在 CC 出現有效文字時取樣。功能開啟後會自動擷取目前正在播放的 YouTube 分頁，不必開啟此面板。</p>
+      <div class="option-row detector-option">
+        <div><strong>簡體 CC 時略過偵測</strong><small>有簡體、沒有繁體字幕時不執行 OCR；字幕轉換與替換仍正常運作</small></div>
+        <label class="inline-switch"><input id="skipEmbeddedDetectionForSimplifiedOnly" type="checkbox" aria-label="只有簡體 CC 且沒有繁體字幕時略過畫面內嵌字幕偵測"><span aria-hidden="true"></span></label>
+      </div>
       <div id="detector-status" class="detector-status">尚未取樣</div>
     </section>
 

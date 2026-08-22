@@ -35,6 +35,45 @@ test("簡中可以改用本機 OpenCC", () => {
   assert.equal(plan.type, "opencc");
 });
 
+test("只有簡體 CC 且沒有繁體字幕時預設略過內嵌字幕偵測", () => {
+  const playerData = {
+    captionTracks: [
+      { languageCode: "zh-Hans", name: "中文（簡體）" },
+      { languageCode: "en", name: "English" }
+    ]
+  };
+  assert.equal(Core.mergeSettings().skipEmbeddedDetectionForSimplifiedOnly, true);
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, { embeddedDetection: true }), "simplified-only");
+});
+
+test("具有繁體字幕或關閉例外選項時仍執行內嵌字幕偵測", () => {
+  const withTraditional = {
+    captionTracks: [
+      { languageCode: "zh-CN", name: "中文（簡體）" },
+      { languageCode: "zh-TW", name: "中文（繁體）" }
+    ]
+  };
+  assert.equal(Core.embeddedDetectionSkipReason(withTraditional, { embeddedDetection: true }), "");
+  assert.equal(Core.embeddedDetectionSkipReason({
+    captionTracks: [{ languageCode: "zh-CN", name: "中文（簡體）" }]
+  }, {
+    embeddedDetection: true,
+    skipEmbeddedDetectionForSimplifiedOnly: false
+  }), "");
+});
+
+test("略過 OCR 不影響簡體字幕的 YouTube 翻譯計畫", () => {
+  const playerData = {
+    captionTracks: [{ languageCode: "zh-CN", name: "中文（簡體）", isTranslatable: true }],
+    translationLanguages: translations
+  };
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, { embeddedDetection: true }), "simplified-only");
+  assert.equal(Core.chooseCaptionPlan(playerData, {
+    embeddedDetection: true,
+    skipEmbeddedDetectionForSimplifiedOnly: true
+  }).type, "translate");
+});
+
 test("預設不使用人工英文、自動英文及其他語言", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [{ languageCode: "en", name: "English", isTranslatable: true }],

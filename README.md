@@ -22,6 +22,7 @@
 - 總開關開啟時顯示彩色工具列圖示，關閉時顯示黑白圖示。
 - 面板會在開啟及切換總開關時，以動態像素資料直接校正工具列圖示，背景服務也會依儲存設定再次同步；停用時另顯示 `OFF` 徽章。
 - 可選擇啟用實驗性的畫面內嵌字幕偵測。偵測到影片已有圖形字幕時，會自動關閉 CC，避免字幕重疊。
+- 內嵌字幕偵測預設略過「有簡體 CC、沒有繁體字幕」的影片；字幕翻譯、簡轉繁、地區用語與自訂替換仍會正常執行。此例外可在面板中關閉。
 - 內嵌字幕判斷最早可在第三段有效 CC 字幕完成，判斷結束後停止持續監控以節省資源。
 
 ### 預設字幕規則
@@ -97,6 +98,7 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 - Supports YouTube's single-page navigation between videos.
 - Shows a colored toolbar icon while enabled and a grayscale icon while disabled.
 - Includes an optional experimental detector for burned-in captions. When embedded captions are detected, YouTube CC is disabled to prevent duplicated subtitles.
+- By default, embedded-caption detection is skipped when a video has Simplified Chinese CC but no Traditional Chinese track. Caption translation and local text post-processing continue normally, and this exception can be disabled.
 - Embedded-caption detection can finish as early as the third valid caption cue and stops monitoring after a decision to reduce resource usage.
 
 ### Install a Release Build

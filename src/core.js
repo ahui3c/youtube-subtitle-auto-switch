@@ -72,6 +72,7 @@
     autoEnableCaptions: true,
     simplifiedMode: "youtube",
     embeddedDetection: false,
+    skipEmbeddedDetectionForSimplifiedOnly: true,
     taiwanTermsEnabled: true,
     hongKongColloquialEnabled: false,
     customReplacementsEnabled: true,
@@ -141,6 +142,7 @@
       ...input,
       settingsVersion: SETTINGS_VERSION,
       simplifiedMode: input.simplifiedMode === "opencc" ? "opencc" : "youtube",
+      skipEmbeddedDetectionForSimplifiedOnly: input.skipEmbeddedDetectionForSimplifiedOnly !== false,
       taiwanTermsEnabled: input.taiwanTermsEnabled !== false,
       hongKongColloquialEnabled: input.hongKongColloquialEnabled === true,
       customReplacementsEnabled: input.customReplacementsEnabled !== false,
@@ -253,6 +255,14 @@
     }
 
     return { type: "none", reason: "no-matching-rule" };
+  }
+
+  function embeddedDetectionSkipReason(playerData, rawSettings) {
+    const settings = mergeSettings(rawSettings);
+    if (!settings.embeddedDetection || !settings.skipEmbeddedDetectionForSimplifiedOnly) return "";
+    const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
+    const families = new Set(tracks.map(familyOf));
+    return families.has("simplified") && !families.has("traditional") ? "simplified-only" : "";
   }
 
   function normalizeCueText(value) {
@@ -445,6 +455,7 @@
     isLocalTextConversionEnabled,
     findTraditionalTarget,
     chooseCaptionPlan,
+    embeddedDetectionSkipReason,
     normalizeCueText,
     isUsefulCue,
     maskPixelRegions,

@@ -25,8 +25,22 @@
       samples: [],
       lastAnalysis: null,
       complete: false,
-      detected: false
+      detected: false,
+      skipReason: ""
     };
+  }
+
+  function refreshCaptureState() {
+    const skipReason = Core.embeddedDetectionSkipReason(playerData, settings);
+    if (detection.skipReason && !skipReason) detection = freshDetection();
+    captureArmed = settings.embeddedDetection && Boolean(playerData?.videoId) && !skipReason;
+    detection.skipReason = skipReason;
+    if (skipReason) {
+      captureGeneration += 1;
+      pendingCue = null;
+      activeCueKey = "";
+      detection.complete = true;
+    }
   }
 
   function storageGet(area, key) {
@@ -49,7 +63,7 @@
         chrome.storage.local.set({ customReplacements })
       ]);
     }
-    captureArmed = settings.embeddedDetection;
+    refreshCaptureState();
   }
 
   function saveStatus(extra = {}) {
@@ -65,6 +79,7 @@
         detectionSamples: detection.samples.length,
         detectionComplete: detection.complete,
         embeddedDetected: detection.detected,
+        detectionSkipReason: detection.skipReason,
         lastDetectionScore: detection.lastAnalysis ? Math.round(detection.lastAnalysis.score * 100) : null,
         lastDetectionBand: detection.lastAnalysis ? Math.round(detection.lastAnalysis.bandCenter * 100) : null,
         ...extra
@@ -104,6 +119,7 @@
     if (!next?.videoId) return;
     if (playerData?.videoId !== next.videoId) resetForVideo();
     playerData = next;
+    refreshCaptureState();
     selectAndApply();
   });
 
@@ -379,14 +395,15 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "ytlang:settings-updated") {
       settings = Core.mergeSettings(message.settings);
-      captureArmed = settings.embeddedDetection;
       resetForVideo();
+      refreshCaptureState();
       selectAndApply();
       sendResponse({ ok: true });
       return false;
     }
     if (message?.type === "ytlang:reapply") {
       resetForVideo();
+      refreshCaptureState();
       selectAndApply();
       showToast("已重新套用字幕規則");
       sendResponse({ ok: true });
