@@ -20,6 +20,9 @@
   const replacementTo = document.getElementById("replacement-to");
   const replacementList = document.getElementById("replacement-list");
   const replacementError = document.getElementById("replacement-error");
+  const versionLabel = document.getElementById("version-label");
+  const ACTION_ICON_SIZES = [16, 32, 48, 128];
+  const actionImageDataCache = new Map();
   let settings = Core.mergeSettings();
   let activeTab = null;
 
@@ -40,6 +43,51 @@
       if (!activeTab?.id) return resolve(null);
       chrome.tabs.sendMessage(activeTab.id, message, (response) => resolve(chrome.runtime.lastError ? null : response));
     });
+  }
+
+  function sendToRuntime(message) {
+    return Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => null);
+  }
+
+  async function actionImageData(state) {
+    if (actionImageDataCache.has(state)) return actionImageDataCache.get(state);
+    const imageData = {};
+    for (const size of ACTION_ICON_SIZES) {
+      const image = new Image();
+      image.src = chrome.runtime.getURL(`icons/${state}-${size}.png`);
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0, size, size);
+      imageData[size] = context.getImageData(0, 0, size, size);
+    }
+    actionImageDataCache.set(state, imageData);
+    return imageData;
+  }
+
+  async function updateToolbarState(isEnabled) {
+    const state = isEnabled ? "enabled" : "disabled";
+    const path = Object.fromEntries(ACTION_ICON_SIZES.map((size) => [size, `icons/${state}-${size}.png`]));
+    const updates = [
+      sendToRuntime({ type: "ytlang:update-action-state", enabled: isEnabled })
+    ];
+    if (chrome.action?.setIcon) {
+      updates.push(
+        actionImageData(state)
+          .then((imageData) => chrome.action.setIcon({ imageData }))
+          .catch(() => chrome.action.setIcon({ path }))
+      );
+      updates.push(chrome.action.setBadgeText({ text: isEnabled ? "" : "OFF" }));
+      updates.push(chrome.action.setBadgeBackgroundColor({ color: "#7A8288" }));
+    }
+    if (chrome.action?.setTitle) {
+      updates.push(chrome.action.setTitle({
+        title: `Youtube 字幕全自動開關：${isEnabled ? "已開啟" : "已關閉"}`
+      }));
+    }
+    await Promise.allSettled(updates);
   }
 
   function renderPriority() {
@@ -231,9 +279,10 @@
     }
   }
 
-  enabled.addEventListener("change", () => {
+  enabled.addEventListener("change", async () => {
     settings = Core.mergeSettings({ ...settings, enabled: enabled.checked });
-    save();
+    await updateToolbarState(settings.enabled);
+    await save();
   });
 
   embeddedDetection.addEventListener("change", async () => {
@@ -314,8 +363,11 @@
       ]);
     }
     activeTab = tab;
+    const manifestVersion = chrome.runtime.getManifest?.().version;
+    versionLabel.textContent = manifestVersion ? `v${manifestVersion}` : "";
     renderSettings();
     renderStatus(local.status);
+    await updateToolbarState(settings.enabled);
   }
 
   start();

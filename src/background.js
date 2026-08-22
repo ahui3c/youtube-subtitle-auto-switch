@@ -10,7 +10,9 @@ function actionIconPaths(enabled) {
 async function updateActionState(enabled) {
   await Promise.all([
     chrome.action.setIcon({ path: actionIconPaths(enabled) }),
-    chrome.action.setTitle({ title: `Youtube 字幕全自動開關：${enabled ? "已開啟" : "已關閉"}` })
+    chrome.action.setTitle({ title: `Youtube 字幕全自動開關：${enabled ? "已開啟" : "已關閉"}` }),
+    chrome.action.setBadgeText({ text: enabled ? "" : "OFF" }),
+    chrome.action.setBadgeBackgroundColor({ color: "#7A8288" })
   ]);
 }
 
@@ -29,6 +31,13 @@ chrome.runtime.onStartup.addListener(syncActionState);
 syncActionState();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "ytlang:update-action-state") {
+    updateActionState(message.enabled !== false)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, message: error.message }));
+    return true;
+  }
+
   if (message?.type !== "ytlang:capture-frame") return false;
 
   const tabId = sender.tab?.id;

@@ -274,6 +274,8 @@ input:focus-visible + span { outline: 2px solid var(--caption); outline-offset: 
 footer { gap: 12px; padding-top: 16px; }
 .primary { background: var(--caption); border: 0; border-radius: 8px; color: #17202a; cursor: pointer; font-size: 12px; font-weight: 800; padding: 10px 14px; }
 footer span { color: var(--muted); font-size: 10px; text-align: right; }
+.footer-meta { display: grid; gap: 3px; justify-items: end; }
+#version-label { color: var(--route); font-family: Consolas, monospace; }
 
 @media (prefers-reduced-motion: no-preference) {
   .signal i { animation: pulse 1.2s ease-in-out infinite alternate; }

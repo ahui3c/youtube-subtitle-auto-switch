@@ -7,6 +7,7 @@ let activeTabId = 7;
 let captureCalls = 0;
 let lastIconPath;
 let lastTitle;
+let lastBadgeText;
 
 globalThis.chrome = {
   runtime: {
@@ -36,6 +37,11 @@ globalThis.chrome = {
     },
     async setTitle({ title }) {
       lastTitle = title;
+    },
+    async setBadgeText({ text }) {
+      lastBadgeText = text;
+    },
+    async setBadgeBackgroundColor() {
     }
   },
   tabs: {
@@ -57,6 +63,13 @@ await new Promise((resolve) => setImmediate(resolve));
 function sendCapture(sender = { tab: { id: 7, windowId: 3 } }) {
   return new Promise((resolve) => {
     const keepChannelOpen = messageListener({ type: "ytlang:capture-frame" }, sender, resolve);
+    assert.equal(keepChannelOpen, true);
+  });
+}
+
+function sendMessage(message, sender = {}) {
+  return new Promise((resolve) => {
+    const keepChannelOpen = messageListener(message, sender, resolve);
     assert.equal(keepChannelOpen, true);
   });
 }
@@ -85,4 +98,18 @@ test("總開關會即時切換彩色與黑白圖示", async () => {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(lastIconPath[16], "icons/disabled-16.png");
   assert.equal(lastTitle, "Youtube 字幕全自動開關：已關閉");
+  assert.equal(lastBadgeText, "OFF");
+});
+
+test("面板可直接要求背景校正工具列圖示", async () => {
+  const disabled = await sendMessage({ type: "ytlang:update-action-state", enabled: false });
+  assert.deepEqual(disabled, { ok: true });
+  assert.equal(lastIconPath[32], "icons/disabled-32.png");
+  assert.equal(lastTitle, "Youtube 字幕全自動開關：已關閉");
+
+  const enabled = await sendMessage({ type: "ytlang:update-action-state", enabled: true });
+  assert.deepEqual(enabled, { ok: true });
+  assert.equal(lastIconPath[32], "icons/enabled-32.png");
+  assert.equal(lastTitle, "Youtube 字幕全自動開關：已開啟");
+  assert.equal(lastBadgeText, "");
 });

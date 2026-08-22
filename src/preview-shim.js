@@ -53,6 +53,8 @@
     };
   previewChrome.runtime = {
       lastError: null,
+      getManifest() { return { version: "preview" }; },
+      getURL(path) { return new URL(`../${path}`, location.href).href; },
       sendMessage() { return Promise.resolve({ ok: true }); }
     };
   globalThis.chrome = previewChrome;
