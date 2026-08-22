@@ -12,6 +12,7 @@ await cp(path.join(root, "icons"), path.join(dist, "icons"), { recursive: true }
 
 const files = [
   "manifest.json",
+  "THIRD_PARTY_NOTICES.md",
   "src/background.js",
   "src/content.css",
   "src/content.js",
@@ -42,6 +43,13 @@ for (const candidate of openccCandidates) {
   } catch {}
 }
 if (!copiedOpenCC) throw new Error("找不到 OpenCC-JS。請先安裝相依套件。");
+
+await mkdir(path.join(dist, "vendor/licenses"), { recursive: true });
+await cp(path.join(root, "node_modules/opencc-js/LICENSE"), path.join(dist, "vendor/licenses/opencc-js-LICENSE"));
+await cp(
+  path.join(root, "node_modules/opencc-js/THIRD_PARTY_LICENSES.md"),
+  path.join(dist, "vendor/licenses/opencc-js-THIRD_PARTY_LICENSES.md")
+);
 
 const manifest = JSON.parse(await readFile(path.join(dist, "manifest.json"), "utf8"));
 await writeFile(path.join(dist, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

@@ -8,7 +8,8 @@
   let playerData = null;
   let activePlan = null;
   let applyAttempts = 0;
-  let openccConverter = null;
+  const openccConverters = new Map();
+  let processedSegments = new WeakMap();
   let lastCue = "";
   let captureBusy = false;
   let captureArmed = false;
@@ -28,15 +29,25 @@
     };
   }
 
-  function storageGet() {
-    return new Promise((resolve) => chrome.storage.sync.get("settings", resolve));
+  function storageGet(area, key) {
+    return new Promise((resolve) => chrome.storage[area].get(key, resolve));
   }
 
   async function loadSettings() {
-    const result = await storageGet();
-    settings = Core.migrateStoredSettings(result.settings);
-    if (result.settings?.settingsVersion !== settings.settingsVersion) {
-      await chrome.storage.sync.set({ settings });
+    const [synced, local] = await Promise.all([
+      storageGet("sync", "settings"),
+      storageGet("local", "customReplacements")
+    ]);
+    settings = Core.migrateStoredSettings({
+      ...synced.settings,
+      customReplacements: local.customReplacements || synced.settings?.customReplacements
+    });
+    if (synced.settings?.settingsVersion !== settings.settingsVersion || synced.settings?.customReplacements) {
+      const { customReplacements, ...syncSettings } = settings;
+      await Promise.all([
+        chrome.storage.sync.set({ settings: syncSettings }),
+        chrome.storage.local.set({ customReplacements })
+      ]);
     }
     captureArmed = settings.embeddedDetection;
   }
@@ -69,6 +80,7 @@
     applyAttempts = 0;
     lastCue = "";
     detection = freshDetection();
+    processedSegments = new WeakMap();
   }
 
   function selectAndApply() {
@@ -104,20 +116,32 @@
     saveStatus({ applyOk: Boolean(result.ok), applyMessage: result.message || "" });
   });
 
-  function getConverter() {
-    if (openccConverter) return openccConverter;
+  function getConverter(target) {
+    if (openccConverters.has(target)) return openccConverters.get(target);
     if (!globalThis.OpenCC?.Converter) return null;
-    openccConverter = globalThis.OpenCC.Converter({ from: "cn", to: "tw" });
-    return openccConverter;
+    const converter = globalThis.OpenCC.Converter({ from: "cn", to: target });
+    openccConverters.set(target, converter);
+    return converter;
   }
 
   function convertCaptionSegments() {
-    if (activePlan?.type !== "opencc") return;
-    const converter = getConverter();
-    if (!converter) return;
+    if (!settings.enabled) return;
+    const localMode = Core.isLocalTextConversionEnabled(settings);
+    const needsOpenCC = activePlan?.type === "opencc";
+    const converter = needsOpenCC
+      ? getConverter(localMode && settings.taiwanTermsEnabled ? "twp" : "tw")
+      : localMode && settings.taiwanTermsEnabled ? getConverter("twp") : null;
     for (const segment of document.querySelectorAll(".ytp-caption-segment")) {
       const current = segment.textContent || "";
-      const converted = converter(current);
+      if (processedSegments.get(segment) === current) continue;
+      let converted = localMode && settings.hongKongColloquialEnabled
+        ? Core.applyHongKongColloquial(current)
+        : current;
+      if (converter) converted = converter(converted);
+      if (settings.customReplacementsEnabled) {
+        converted = Core.applyLiteralReplacements(converted, settings.customReplacements);
+      }
+      processedSegments.set(segment, converted);
       if (converted !== current) segment.textContent = converted;
     }
   }

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Converter } from "opencc-js";
 
 await import("../src/core.js");
 const Core = globalThis.YTLangCore;
@@ -113,7 +114,7 @@ test("設定合併會排除不存在及重複的停用規則", () => {
 
 test("舊設定只遷移一次到新的字幕預設", () => {
   const migrated = Core.migrateStoredSettings({ simplifiedMode: "opencc", disabledRules: [] });
-  assert.equal(migrated.settingsVersion, 2);
+  assert.equal(migrated.settingsVersion, 3);
   assert.equal(migrated.simplifiedMode, "youtube");
   assert.deepEqual(migrated.disabledRules, ["en-manual", "en-auto", "other"]);
 
@@ -124,6 +125,45 @@ test("舊設定只遷移一次到新的字幕預設", () => {
   });
   assert.equal(customized.simplifiedMode, "opencc");
   assert.deepEqual(customized.disabledRules, []);
+  assert.equal(customized.taiwanTermsEnabled, true);
+  assert.equal(customized.hongKongColloquialEnabled, false);
+});
+
+test("OpenCC twp 會同時轉換繁體字與台灣慣用詞", () => {
+  const converter = Converter({ from: "cn", to: "twp" });
+  assert.equal(converter("保存信息和人工智能软件"), "儲存資訊和人工智慧軟體");
+});
+
+test("地區用語只有在本機轉換模式啟用", () => {
+  assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "youtube" }), false);
+  assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "opencc" }), true);
+  assert.equal(Core.isLocalTextConversionEnabled({ enabled: false, simplifiedMode: "opencc" }), false);
+});
+
+test("香港常見口語可轉為普通話且較長詞優先", () => {
+  assert.equal(
+    Core.applyHongKongColloquial("我哋而家唔知道佢哋去咗邊度"),
+    "我們現在不知道他們去了哪裡"
+  );
+  assert.equal(Core.applyHongKongColloquial("唔使客氣，等陣一齊食飯"), "不用客氣，等一下一起吃飯");
+});
+
+test("自訂替換可停用並由較長原詞優先套用", () => {
+  const rules = [
+    { from: "出租車", to: "計程車", enabled: true },
+    { from: "出租", to: "租賃", enabled: true },
+    { from: "影片", to: "視頻", enabled: false }
+  ];
+  assert.equal(Core.applyLiteralReplacements("搭出租車看影片", rules), "搭計程車看影片");
+});
+
+test("自訂替換會排除空白、重複及無效規則", () => {
+  assert.deepEqual(Core.normalizeReplacementRules([
+    { from: " A ", to: " B " },
+    { from: "A", to: "C" },
+    { from: "", to: "D" },
+    { from: "E", to: "E" }
+  ]), [{ from: "A", to: "B", enabled: true }]);
 });
 
 test("舊版優先順序會在繁中之後插入新增的中文字幕規則", () => {

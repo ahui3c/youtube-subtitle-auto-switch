@@ -13,8 +13,58 @@
     { id: "other", label: "其他可翻譯語言", family: "other", automatic: null, action: "translate" }
   ]);
 
-  const SETTINGS_VERSION = 2;
+  const SETTINGS_VERSION = 3;
   const DEFAULT_DISABLED_RULES = Object.freeze(["en-manual", "en-auto", "other"]);
+
+  // Curated conservative mappings only. Ambiguous single-character replacements
+  // are deliberately excluded because they can corrupt names and formal Chinese.
+  const HONG_KONG_COLLOQUIAL_RULES = Object.freeze([
+    ["唔使客氣", "不用客氣"], ["唔好意思", "不好意思"], ["唔緊要", "沒關係"],
+    ["冇乜所謂", "沒什麼關係"], ["冇所謂", "沒關係"], ["對唔住", "對不起"],
+    ["唔該晒", "非常感謝"], ["多謝晒", "非常感謝"], ["唔該你", "麻煩你"],
+    ["做緊乜嘢", "正在做什麼"], ["做緊乜", "正在做什麼"], ["發生咩事", "發生什麼事"],
+    ["發生乜嘢事", "發生什麼事"], ["去咗邊度", "去了哪裡"], ["去邊度", "去哪裡"],
+    ["喺邊度", "在哪裡"], ["有冇問題", "有沒有問題"], ["有冇時間", "有沒有時間"],
+    ["使唔使", "需不需要"], ["可唔可以", "可不可以"], ["得唔得", "行不行"],
+    ["好唔好", "好不好"], ["係唔係", "是不是"], ["係咪", "是不是"],
+    ["唔知道", "不知道"], ["唔明白", "不明白"], ["唔需要", "不需要"],
+    ["唔可以", "不可以"], ["唔可能", "不可能"], ["唔一定", "不一定"],
+    ["唔記得", "不記得"], ["唔同意", "不同意"], ["唔鍾意", "不喜歡"],
+    ["唔想要", "不想要"], ["唔會再", "不會再"], ["唔係咁", "不是這樣"],
+    ["唔係", "不是"], ["唔會", "不會"], ["唔好", "不要"],
+    ["冇問題", "沒問題"], ["冇辦法", "沒辦法"], ["冇時間", "沒時間"],
+    ["冇機會", "沒機會"], ["冇可能", "不可能"], ["冇需要", "沒必要"],
+    ["而家先", "現在才"], ["依家先", "現在才"], ["而家", "現在"], ["依家", "現在"],
+    ["點解會", "為什麼會"], ["點解", "為什麼"], ["點樣做", "怎麼做"], ["點樣", "怎麼樣"],
+    ["點算好", "怎麼辦才好"], ["點算", "怎麼辦"], ["邊一個", "哪一個"], ["邊個", "誰"],
+    ["邊一度", "哪裡"], ["邊度", "哪裡"], ["幾時", "什麼時候"], ["乜嘢", "什麼"],
+    ["咩意思", "什麼意思"], ["咩事", "什麼事"], ["呢一個", "這一個"], ["呢個", "這個"],
+    ["嗰一個", "那一個"], ["嗰個", "那個"], ["呢一啲", "這一些"], ["呢啲", "這些"],
+    ["嗰一啲", "那一些"], ["嗰啲", "那些"], ["我哋", "我們"], ["你哋", "你們"],
+    ["佢哋", "他們"], ["大家一齊", "大家一起"], ["一齊去", "一起去"], ["一齊", "一起"],
+    ["等一陣間", "等一下"], ["一陣間", "一會兒"], ["等陣", "等一下"], ["陣間", "待會兒"],
+    ["頭先", "剛才"], ["啱啱", "剛剛"], ["即刻", "立刻"], ["後尾", "後來"],
+    ["聽日", "明天"], ["尋日", "昨天"], ["琴日", "昨天"], ["今朝", "今天早上"],
+    ["朝早", "早上"], ["晏晝", "下午"], ["夜晚", "晚上"], ["返工", "上班"],
+    ["收工", "下班"], ["放工", "下班"], ["搵工", "找工作"], ["搵人", "找人"],
+    ["搵錢", "賺錢"], ["屋企人", "家人"], ["返屋企", "回家"], ["屋企", "家裡"],
+    ["沖涼", "洗澡"], ["行街", "逛街"], ["食飯", "吃飯"], ["買嘢", "買東西"],
+    ["做嘢", "做事"], ["講嘢", "說話"], ["睇影片", "看影片"], ["睇片", "看影片"],
+    ["睇下", "看一下"], ["睇到", "看到"], ["睇唔到", "看不到"], ["聽唔到", "聽不到"],
+    ["入嚟", "進來"], ["出嚟", "出來"], ["返嚟", "回來"], ["過嚟", "過來"],
+    ["落嚟", "下來"], ["上嚟", "上來"], ["搞掂", "搞定"], ["未搞掂", "還沒完成"],
+    ["淨係", "只是"], ["剩係", "只是"], ["梗係", "當然"], ["即係話", "也就是說"],
+    ["即係", "就是"], ["諗住", "打算"], ["諗下", "想想"], ["諗到", "想到"],
+    ["鍾意", "喜歡"], ["應承", "答應"], ["求其", "隨便"], ["是但", "隨便"],
+    ["無端端", "無緣無故"], ["得閒", "有空"], ["仲有", "還有"], ["仲未", "還沒"],
+    ["咁樣", "這樣"], ["咁多", "這麼多"], ["咁快", "這麼快"], ["咁耐", "這麼久"],
+    ["咁遠", "這麼遠"], ["咁近", "這麼近"], ["咁大", "這麼大"], ["咁細", "這麼小"],
+    ["好攰", "很累"], ["好正", "很棒"], ["好抵", "很划算"], ["平啲", "便宜一點"],
+    ["快啲", "快一點"], ["慢啲", "慢一點"], ["早啲", "早一點"], ["遲啲", "晚一點"],
+    ["小心啲", "小心一點"], ["雪櫃", "冰箱"], ["手提電話", "手機"], ["流動電話", "手機"],
+    ["電郵地址", "電子郵件地址"], ["電郵", "電子郵件"], ["的士", "出租車"], ["巴士", "公共汽車"]
+  ].map(([from, to], priority) => Object.freeze({ from, to, enabled: true, priority })));
+  const replacementRulesCache = new WeakMap();
 
   const DEFAULT_SETTINGS = Object.freeze({
     settingsVersion: SETTINGS_VERSION,
@@ -22,6 +72,10 @@
     autoEnableCaptions: true,
     simplifiedMode: "youtube",
     embeddedDetection: false,
+    taiwanTermsEnabled: true,
+    hongKongColloquialEnabled: false,
+    customReplacementsEnabled: true,
+    customReplacements: [],
     priority: RULES.map((rule) => rule.id),
     disabledRules: DEFAULT_DISABLED_RULES
   });
@@ -87,6 +141,10 @@
       ...input,
       settingsVersion: SETTINGS_VERSION,
       simplifiedMode: input.simplifiedMode === "opencc" ? "opencc" : "youtube",
+      taiwanTermsEnabled: input.taiwanTermsEnabled !== false,
+      hongKongColloquialEnabled: input.hongKongColloquialEnabled === true,
+      customReplacementsEnabled: input.customReplacementsEnabled !== false,
+      customReplacements: normalizeReplacementRules(input.customReplacements).slice(0, 100),
       priority,
       disabledRules
     };
@@ -95,6 +153,9 @@
   function migrateStoredSettings(settings) {
     const input = settings && typeof settings === "object" ? settings : {};
     if (Number(input.settingsVersion) >= SETTINGS_VERSION) return mergeSettings(input);
+    if (Number(input.settingsVersion) >= 2) {
+      return mergeSettings({ ...input, settingsVersion: SETTINGS_VERSION });
+    }
     const disabledRules = [...new Set([
       ...DEFAULT_DISABLED_RULES,
       ...(Array.isArray(input.disabledRules) ? input.disabledRules : [])
@@ -105,6 +166,43 @@
       simplifiedMode: "youtube",
       disabledRules
     });
+  }
+
+  function normalizeReplacementRules(rules) {
+    if (!Array.isArray(rules)) return [];
+    const normalized = [];
+    const seen = new Set();
+    for (const candidate of rules) {
+      const from = String(candidate?.from || "").trim().slice(0, 80);
+      const to = String(candidate?.to || "").trim().slice(0, 80);
+      if (!from || !to || from === to || seen.has(from)) continue;
+      seen.add(from);
+      normalized.push({ from, to, enabled: candidate?.enabled !== false });
+    }
+    return normalized;
+  }
+
+  function applyLiteralReplacements(value, rules) {
+    let result = String(value || "");
+    if (!Array.isArray(rules)) return result;
+    let ordered = replacementRulesCache.get(rules);
+    if (!ordered) {
+      ordered = normalizeReplacementRules(rules)
+        .map((rule, index) => ({ ...rule, index }))
+        .filter((rule) => rule.enabled)
+        .sort((left, right) => right.from.length - left.from.length || left.index - right.index);
+      replacementRulesCache.set(rules, ordered);
+    }
+    for (const rule of ordered) result = result.split(rule.from).join(rule.to);
+    return result;
+  }
+
+  function applyHongKongColloquial(value) {
+    return applyLiteralReplacements(value, HONG_KONG_COLLOQUIAL_RULES);
+  }
+
+  function isLocalTextConversionEnabled(settings) {
+    return settings?.enabled !== false && settings?.simplifiedMode === "opencc";
   }
 
   function findTraditionalTarget(translationLanguages) {
@@ -334,12 +432,17 @@
 
   global.YTLangCore = Object.freeze({
     RULES,
+    HONG_KONG_COLLOQUIAL_RULES,
     DEFAULT_SETTINGS,
     normalizeLanguageCode,
     isAutomatic,
     familyOf,
     mergeSettings,
     migrateStoredSettings,
+    normalizeReplacementRules,
+    applyLiteralReplacements,
+    applyHongKongColloquial,
+    isLocalTextConversionEnabled,
     findTraditionalTarget,
     chooseCaptionPlan,
     normalizeCueText,

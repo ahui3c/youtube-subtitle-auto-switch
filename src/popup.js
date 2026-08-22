@@ -11,6 +11,15 @@
   const detectorStatus = document.getElementById("detector-status");
   const simplifiedHint = document.getElementById("simplified-hint");
   const trackCount = document.getElementById("track-count");
+  const taiwanTermsEnabled = document.getElementById("taiwanTermsEnabled");
+  const hongKongColloquialEnabled = document.getElementById("hongKongColloquialEnabled");
+  const termsSection = document.getElementById("terms-section");
+  const customReplacementsEnabled = document.getElementById("customReplacementsEnabled");
+  const replacementForm = document.getElementById("replacement-form");
+  const replacementFrom = document.getElementById("replacement-from");
+  const replacementTo = document.getElementById("replacement-to");
+  const replacementList = document.getElementById("replacement-list");
+  const replacementError = document.getElementById("replacement-error");
   let settings = Core.mergeSettings();
   let activeTab = null;
 
@@ -82,16 +91,95 @@
   function renderSettings() {
     enabled.checked = settings.enabled;
     embeddedDetection.checked = settings.embeddedDetection;
+    taiwanTermsEnabled.checked = settings.taiwanTermsEnabled;
+    hongKongColloquialEnabled.checked = settings.hongKongColloquialEnabled;
+    const localMode = settings.simplifiedMode === "opencc";
+    taiwanTermsEnabled.disabled = !localMode;
+    hongKongColloquialEnabled.disabled = !localMode;
+    termsSection.classList.toggle("is-locked", !localMode);
+    termsSection.setAttribute("aria-disabled", String(!localMode));
+    customReplacementsEnabled.checked = settings.customReplacementsEnabled;
     const radio = document.querySelector(`input[name="simplifiedMode"][value="${settings.simplifiedMode}"]`);
     if (radio) radio.checked = true;
     simplifiedHint.textContent = settings.simplifiedMode === "youtube"
       ? "由 YouTube 將簡體字幕自動翻譯為繁體中文，結果與時間切分由 YouTube 控制。"
       : "本機轉換不會送出字幕文字，並保留原始時間軸。";
     renderPriority();
+    renderReplacements();
+  }
+
+  function renderReplacements() {
+    replacementList.replaceChildren();
+    settings.customReplacements.forEach((rule, index) => {
+      const item = document.createElement("li");
+      item.className = `replacement-item${rule.enabled ? "" : " is-disabled"}`;
+      const toggle = document.createElement("label");
+      toggle.className = "track-toggle";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = rule.enabled;
+      input.setAttribute("aria-label", `${rule.enabled ? "停用" : "啟用"}「${rule.from}」替換`);
+      const visual = document.createElement("span");
+      visual.setAttribute("aria-hidden", "true");
+      input.addEventListener("change", () => updateReplacement(index, { enabled: input.checked }));
+      toggle.append(input, visual);
+      const words = document.createElement("span");
+      words.className = "replacement-words";
+      words.textContent = `${rule.from} → ${rule.to}`;
+      words.title = words.textContent;
+      const actions = document.createElement("div");
+      actions.className = "replacement-actions";
+      const up = document.createElement("button");
+      up.type = "button";
+      up.textContent = "↑";
+      up.title = "提高優先順序";
+      up.disabled = index === 0;
+      up.addEventListener("click", () => moveReplacement(index, index - 1));
+      const down = document.createElement("button");
+      down.type = "button";
+      down.textContent = "↓";
+      down.title = "降低優先順序";
+      down.disabled = index === settings.customReplacements.length - 1;
+      down.addEventListener("click", () => moveReplacement(index, index + 1));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "replacement-delete";
+      remove.textContent = "刪除";
+      remove.addEventListener("click", () => removeReplacement(index));
+      actions.append(up, down, remove);
+      item.append(toggle, words, actions);
+      replacementList.append(item);
+    });
+  }
+
+  function setReplacementRules(rules) {
+    settings = Core.mergeSettings({ ...settings, customReplacements: rules });
+    renderReplacements();
+    save();
+  }
+
+  function updateReplacement(index, patch) {
+    const next = settings.customReplacements.map((rule, current) => current === index ? { ...rule, ...patch } : rule);
+    setReplacementRules(next);
+  }
+
+  function moveReplacement(from, to) {
+    if (to < 0 || to >= settings.customReplacements.length) return;
+    const next = [...settings.customReplacements];
+    [next[from], next[to]] = [next[to], next[from]];
+    setReplacementRules(next);
+  }
+
+  function removeReplacement(index) {
+    setReplacementRules(settings.customReplacements.filter((_, current) => current !== index));
   }
 
   async function save() {
-    await chrome.storage.sync.set({ settings });
+    const { customReplacements, ...syncSettings } = settings;
+    await Promise.all([
+      chrome.storage.sync.set({ settings: syncSettings }),
+      chrome.storage.local.set({ customReplacements })
+    ]);
     saveStatus.textContent = "已儲存";
     await sendToTab({ type: "ytlang:settings-updated", settings });
     window.setTimeout(() => { saveStatus.textContent = "設定會自動儲存"; }, 1300);
@@ -153,6 +241,47 @@
     await save();
   });
 
+  taiwanTermsEnabled.addEventListener("change", () => {
+    settings = Core.mergeSettings({ ...settings, taiwanTermsEnabled: taiwanTermsEnabled.checked });
+    save();
+  });
+
+  hongKongColloquialEnabled.addEventListener("change", () => {
+    settings = Core.mergeSettings({ ...settings, hongKongColloquialEnabled: hongKongColloquialEnabled.checked });
+    save();
+  });
+
+  customReplacementsEnabled.addEventListener("change", () => {
+    settings = Core.mergeSettings({ ...settings, customReplacementsEnabled: customReplacementsEnabled.checked });
+    save();
+  });
+
+  replacementForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    replacementError.textContent = "";
+    const from = replacementFrom.value.trim();
+    const to = replacementTo.value.trim();
+    if (!from || !to) {
+      replacementError.textContent = "請同時輸入原詞與新詞。";
+      return;
+    }
+    if (from === to) {
+      replacementError.textContent = "原詞與新詞不能相同。";
+      return;
+    }
+    if (settings.customReplacements.some((rule) => rule.from === from)) {
+      replacementError.textContent = "這個原詞已經有替換規則。";
+      return;
+    }
+    if (settings.customReplacements.length >= 100) {
+      replacementError.textContent = "自訂規則最多 100 條。";
+      return;
+    }
+    setReplacementRules([...settings.customReplacements, { from, to, enabled: true }]);
+    replacementForm.reset();
+    replacementFrom.focus();
+  });
+
   for (const radio of document.querySelectorAll('input[name="simplifiedMode"]')) {
     radio.addEventListener("change", () => {
       if (!radio.checked) return;
@@ -168,10 +297,21 @@
   });
 
   async function start() {
-    const [stored, tab, local] = await Promise.all([getSync("settings"), queryActiveTab(), getLocal("status")]);
-    settings = Core.migrateStoredSettings(stored.settings);
-    if (stored.settings?.settingsVersion !== settings.settingsVersion) {
-      await chrome.storage.sync.set({ settings });
+    const [stored, tab, local] = await Promise.all([
+      getSync("settings"),
+      queryActiveTab(),
+      getLocal(["status", "customReplacements"])
+    ]);
+    settings = Core.migrateStoredSettings({
+      ...stored.settings,
+      customReplacements: local.customReplacements || stored.settings?.customReplacements
+    });
+    if (stored.settings?.settingsVersion !== settings.settingsVersion || stored.settings?.customReplacements) {
+      const { customReplacements, ...syncSettings } = settings;
+      await Promise.all([
+        chrome.storage.sync.set({ settings: syncSettings }),
+        chrome.storage.local.set({ customReplacements })
+      ]);
     }
     activeTab = tab;
     renderSettings();

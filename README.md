@@ -13,6 +13,9 @@
 - 預設依序尋找人工繁體、自動繁體、通用中文、簡體中文等字幕。
 - 支援 YouTube 使用通用 `zh` 代碼、名稱只顯示「中文」的字幕軌。
 - 只有簡體字幕時，預設使用 YouTube 自動翻譯為繁體中文，也可改用 OpenCC 在本機轉換。
+- 選擇「本機轉換」後，可使用 OpenCC `twp` 將字幕中的中國用語轉為台灣慣用詞，例如「信息 → 資訊」與「保存 → 儲存」。
+- 「香港口語轉普通話」同樣只在本機轉換模式開放；內建保守的高頻口語規則，避免直接替換容易誤判的單字。
+- 支援最多 100 條自訂詞彙替換，可逐條啟用、停用、排序與刪除。
 - 每一條字幕規則都能調整順序，並可個別啟用或停用。
 - 「人工英文」、「自動產生的英文」及「其他可翻譯語言」預設停用，需要時才開啟。
 - 支援 YouTube 單頁式網站切換影片，不必重新載入擴充功能。
@@ -34,6 +37,8 @@
 
 簡轉繁方式預設使用 YouTube 翻譯。
 
+地區用語只會在選擇「本機轉換」時執行。字幕文字的後處理順序為「香港口語 → 台灣用語 → 自訂替換」，因此自訂規則可以覆寫內建結果。香港口語轉換牽涉語境與粵語語法，預設關閉並標示為實驗性功能。
+
 ### 安裝 Release 版本
 
 1. 從 [Releases](https://github.com/ahui3c/youtube-subtitle-auto-switch/releases) 下載最新 ZIP。
@@ -52,11 +57,11 @@ pnpm run build
 
 建置完成後，載入本專案的 `dist` 資料夾。
 
-目前測試涵蓋字幕優先順序、個別規則開關、通用中文字幕、簡轉繁策略、背景擷取授權、工具列圖示狀態，以及內嵌字幕影像判斷。
+目前測試涵蓋字幕優先順序、個別規則開關、通用中文字幕、OpenCC 台灣慣用詞、香港常見口語、自訂替換、背景擷取授權、工具列圖示狀態，以及內嵌字幕影像判斷。
 
 ### 權限與隱私
 
-- `storage`：保存字幕偏好、功能開關與本機執行狀態。
+- `storage`：保存字幕偏好、功能開關、自訂替換規則與本機執行狀態。一般設定使用 Chrome 同步儲存；自訂詞庫為避免同步容量限制，只保存在目前瀏覽器。
 - `activeTab`：啟用內嵌字幕偵測時，擷取目前可見的 YouTube 分頁供本機分析。
 - `https://www.youtube.com/*`：只在 YouTube 頁面讀取字幕軌、控制字幕與檢查播放器狀態。
 
@@ -83,6 +88,9 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 - Prioritizes manually created Traditional Chinese captions, followed by automatic Traditional Chinese, generic Chinese, and Simplified Chinese tracks.
 - Recognizes generic `zh` tracks that YouTube may label simply as “Chinese.”
 - Uses YouTube translation to Traditional Chinese by default when only Simplified Chinese captions are available; local OpenCC conversion is also available.
+- Uses OpenCC's Taiwan phrase conversion by default for locally displayed captions.
+- Offers an optional experimental set of conservative Hong Kong colloquial-to-Mandarin replacements.
+- Supports up to 100 user-defined replacement rules with per-rule toggles and ordering.
 - Every caption rule can be reordered or individually enabled and disabled.
 - Manual English, automatic English, and other translatable languages are disabled by default.
 - Supports YouTube's single-page navigation between videos.
@@ -110,7 +118,7 @@ Load the generated `dist` directory as an unpacked extension.
 
 ### Permissions and Privacy
 
-- `storage`: Saves caption preferences, feature toggles, and local runtime status.
+- `storage`: Saves caption preferences, feature toggles, custom replacement rules, and local runtime status. Custom rules stay in the current browser to avoid sync-storage limits.
 - `activeTab`: Captures the visible YouTube tab for local embedded-caption analysis when the optional detector is enabled.
 - `https://www.youtube.com/*`: Reads caption tracks and player state and applies caption choices only on YouTube.
 

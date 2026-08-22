@@ -54,6 +54,44 @@
       <p id="simplified-hint" class="hint">本機轉換不會送出字幕文字，並保留原始時間軸。</p>
     </section>
 
+    <section id="terms-section" class="section compact terms-section" aria-labelledby="terms-title">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">字幕文字後處理</p>
+          <h2 id="terms-title">地區用語轉換</h2>
+        </div>
+      </div>
+      <div class="option-row">
+        <div><strong>台灣用語</strong><small>使用 OpenCC 台灣慣用詞庫</small></div>
+        <label class="inline-switch"><input id="taiwanTermsEnabled" type="checkbox" aria-label="啟用台灣用語轉換"><span aria-hidden="true"></span></label>
+      </div>
+      <div class="option-row">
+        <div><strong>香港口語轉普通話</strong><small>實驗性 · 僅轉換高信心常見詞</small></div>
+        <label class="inline-switch"><input id="hongKongColloquialEnabled" type="checkbox" aria-label="啟用香港口語轉普通話"><span aria-hidden="true"></span></label>
+      </div>
+      <p id="terms-lock-hint" class="lock-hint" role="status">請先在上方選擇「本機轉換」才能使用。</p>
+      <p class="hint">處理順序：香港口語 → 台灣用語 → 自訂替換。語境不同時仍可能需要自行修正。</p>
+    </section>
+
+    <section class="section compact" aria-labelledby="custom-title">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">最高覆寫優先權</p>
+          <h2 id="custom-title">自訂詞彙替換</h2>
+        </div>
+        <label class="inline-switch"><input id="customReplacementsEnabled" type="checkbox" aria-label="啟用自訂詞彙替換"><span aria-hidden="true"></span></label>
+      </div>
+      <form id="replacement-form" class="replacement-form">
+        <input id="replacement-from" maxlength="80" placeholder="原詞，例如：出租車" aria-label="要取代的原詞">
+        <span aria-hidden="true">→</span>
+        <input id="replacement-to" maxlength="80" placeholder="新詞，例如：計程車" aria-label="替換後的新詞">
+        <button type="submit">新增</button>
+      </form>
+      <div id="replacement-error" class="form-error" role="alert"></div>
+      <ol id="replacement-list" class="replacement-list"></ol>
+      <p class="hint">較長的原詞會優先匹配；最多 100 條。每條規則都能停用、排序或刪除。</p>
+    </section>
+
     <section class="section compact detector" aria-labelledby="detector-title">
       <div class="detector-row">
         <div>
@@ -61,7 +99,7 @@
           <h2 id="detector-title">偵測畫面內嵌字幕</h2>
         </div>
         <label class="inline-switch">
-          <input id="embeddedDetection" type="checkbox">
+          <input id="embeddedDetection" type="checkbox" aria-label="啟用畫面內嵌字幕偵測">
           <span aria-hidden="true"></span>
         </label>
       </div>
