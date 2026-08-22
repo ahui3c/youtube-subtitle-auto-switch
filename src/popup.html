@@ -98,6 +98,27 @@
       <p class="hint">較長的原詞會優先匹配；最多 100 條。每條規則都能停用、排序或刪除。</p>
     </section>
 
+    <section class="section compact channel-rules-section" aria-labelledby="channel-rules-title">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">依頻道覆寫全域設定</p>
+          <div class="feature-title-row">
+            <h2 id="channel-rules-title">指定頻道規則</h2>
+            <span class="vip-badge">VIP 功能</span>
+          </div>
+        </div>
+      </div>
+      <div class="current-channel-card">
+        <div class="current-channel-copy">
+          <strong id="current-channel-name">正在取得目前頻道…</strong>
+          <small id="current-channel-id"></small>
+        </div>
+        <button id="add-current-channel" class="secondary" type="button">將目前頻道加入規則</button>
+      </div>
+      <ol id="channel-rule-list" class="channel-rule-list"></ol>
+      <p class="hint">強制 OCR 只會覆寫其他略過條件；全域「偵測畫面內嵌字幕」關閉時仍不會啟動。</p>
+    </section>
+
     <section class="section compact detector" aria-labelledby="detector-title">
       <div class="detector-row">
         <div>

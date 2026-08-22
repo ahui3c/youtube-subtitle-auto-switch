@@ -13,8 +13,9 @@
     { id: "other", label: "其他可翻譯語言", family: "other", automatic: null, action: "translate" }
   ]);
 
-  const SETTINGS_VERSION = 3;
+  const SETTINGS_VERSION = 4;
   const DEFAULT_DISABLED_RULES = Object.freeze(["en-manual", "en-auto", "other"]);
+  const CHANNEL_RULE_MODES = Object.freeze(["disabled", "skip-ocr", "force-ocr"]);
 
   // Curated conservative mappings only. Ambiguous single-character replacements
   // are deliberately excluded because they can corrupt names and formal Chinese.
@@ -77,6 +78,7 @@
     hongKongColloquialEnabled: false,
     customReplacementsEnabled: true,
     customReplacements: [],
+    channelRules: [],
     priority: RULES.map((rule) => rule.id),
     disabledRules: DEFAULT_DISABLED_RULES
   });
@@ -147,6 +149,7 @@
       hongKongColloquialEnabled: input.hongKongColloquialEnabled === true,
       customReplacementsEnabled: input.customReplacementsEnabled !== false,
       customReplacements: normalizeReplacementRules(input.customReplacements).slice(0, 100),
+      channelRules: normalizeChannelRules(input.channelRules).slice(0, 200),
       priority,
       disabledRules
     };
@@ -182,6 +185,28 @@
       normalized.push({ from, to, enabled: candidate?.enabled !== false });
     }
     return normalized;
+  }
+
+  function normalizeChannelRules(rules) {
+    if (!Array.isArray(rules)) return [];
+    const normalized = [];
+    const seen = new Set();
+    for (const candidate of rules) {
+      const channelId = String(candidate?.channelId || "").trim().slice(0, 100);
+      if (!channelId || seen.has(channelId)) continue;
+      seen.add(channelId);
+      const channelName = String(candidate?.channelName || "").trim().slice(0, 100) || "未命名頻道";
+      const mode = CHANNEL_RULE_MODES.includes(candidate?.mode) ? candidate.mode : "skip-ocr";
+      normalized.push({ channelId, channelName, mode });
+    }
+    return normalized;
+  }
+
+  function channelRuleFor(playerData, rawSettings) {
+    const channelId = String(playerData?.channelId || "").trim();
+    if (!channelId) return null;
+    const settings = mergeSettings(rawSettings);
+    return settings.channelRules.find((rule) => rule.channelId === channelId) || null;
   }
 
   function applyLiteralReplacements(value, rules) {
@@ -259,8 +284,15 @@
 
   function embeddedDetectionSkipReason(playerData, rawSettings) {
     const settings = mergeSettings(rawSettings);
-    if (!settings.embeddedDetection || !settings.skipEmbeddedDetectionForSimplifiedOnly) return "";
+    const channelId = String(playerData?.channelId || "").trim();
+    const channelRule = settings.channelRules.find((rule) => rule.channelId === channelId);
+    if (channelRule?.mode === "disabled") return "channel-disabled";
+    if (!settings.embeddedDetection) return "";
     const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
+    if (!tracks.length) return "no-caption-tracks";
+    if (channelRule?.mode === "skip-ocr") return "channel-skip-ocr";
+    if (channelRule?.mode === "force-ocr") return "";
+    if (!settings.skipEmbeddedDetectionForSimplifiedOnly) return "";
     const families = new Set(tracks.map(familyOf));
     return families.has("simplified") && !families.has("traditional") ? "simplified-only" : "";
   }
@@ -442,6 +474,7 @@
 
   global.YTLangCore = Object.freeze({
     RULES,
+    CHANNEL_RULE_MODES,
     HONG_KONG_COLLOQUIAL_RULES,
     DEFAULT_SETTINGS,
     normalizeLanguageCode,
@@ -450,11 +483,13 @@
     mergeSettings,
     migrateStoredSettings,
     normalizeReplacementRules,
+    normalizeChannelRules,
     applyLiteralReplacements,
     applyHongKongColloquial,
     isLocalTextConversionEnabled,
     findTraditionalTarget,
     chooseCaptionPlan,
+    channelRuleFor,
     embeddedDetectionSkipReason,
     normalizeCueText,
     isUsefulCue,

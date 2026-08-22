@@ -33,7 +33,7 @@
   function refreshCaptureState() {
     const skipReason = Core.embeddedDetectionSkipReason(playerData, settings);
     if (detection.skipReason && !skipReason) detection = freshDetection();
-    captureArmed = settings.embeddedDetection && Boolean(playerData?.videoId) && !skipReason;
+    captureArmed = settings.enabled && settings.embeddedDetection && Boolean(playerData?.videoId) && !skipReason;
     detection.skipReason = skipReason;
     if (skipReason) {
       captureGeneration += 1;
@@ -50,41 +50,49 @@
   async function loadSettings() {
     const [synced, local] = await Promise.all([
       storageGet("sync", "settings"),
-      storageGet("local", "customReplacements")
+      storageGet("local", ["customReplacements", "channelRules"])
     ]);
     settings = Core.migrateStoredSettings({
       ...synced.settings,
-      customReplacements: local.customReplacements || synced.settings?.customReplacements
+      customReplacements: local.customReplacements || synced.settings?.customReplacements,
+      channelRules: local.channelRules || synced.settings?.channelRules
     });
-    if (synced.settings?.settingsVersion !== settings.settingsVersion || synced.settings?.customReplacements) {
-      const { customReplacements, ...syncSettings } = settings;
+    if (synced.settings?.settingsVersion !== settings.settingsVersion
+      || synced.settings?.customReplacements
+      || synced.settings?.channelRules) {
+      const { customReplacements, channelRules, ...syncSettings } = settings;
       await Promise.all([
         chrome.storage.sync.set({ settings: syncSettings }),
-        chrome.storage.local.set({ customReplacements })
+        chrome.storage.local.set({ customReplacements, channelRules })
       ]);
     }
     refreshCaptureState();
   }
 
+  function statusSnapshot(extra = {}) {
+    return {
+      videoId: playerData?.videoId || "",
+      title: playerData?.title || "",
+      channelId: playerData?.channelId || "",
+      channelName: playerData?.channelName || "",
+      channelRuleMode: Core.channelRuleFor(playerData, settings)?.mode || "",
+      planType: activePlan?.type || "none",
+      sourceName: activePlan?.track?.name || "",
+      sourceLanguageCode: activePlan?.track?.languageCode || "",
+      targetName: activePlan?.target?.name || "",
+      captureArmed,
+      detectionSamples: detection.samples.length,
+      detectionComplete: detection.complete,
+      embeddedDetected: detection.detected,
+      detectionSkipReason: detection.skipReason,
+      lastDetectionScore: detection.lastAnalysis ? Math.round(detection.lastAnalysis.score * 100) : null,
+      lastDetectionBand: detection.lastAnalysis ? Math.round(detection.lastAnalysis.bandCenter * 100) : null,
+      ...extra
+    };
+  }
+
   function saveStatus(extra = {}) {
-    chrome.storage.local.set({
-      status: {
-        videoId: playerData?.videoId || "",
-        title: playerData?.title || "",
-        planType: activePlan?.type || "none",
-        sourceName: activePlan?.track?.name || "",
-        sourceLanguageCode: activePlan?.track?.languageCode || "",
-        targetName: activePlan?.target?.name || "",
-        captureArmed,
-        detectionSamples: detection.samples.length,
-        detectionComplete: detection.complete,
-        embeddedDetected: detection.detected,
-        detectionSkipReason: detection.skipReason,
-        lastDetectionScore: detection.lastAnalysis ? Math.round(detection.lastAnalysis.score * 100) : null,
-        lastDetectionBand: detection.lastAnalysis ? Math.round(detection.lastAnalysis.bandCenter * 100) : null,
-        ...extra
-      }
-    });
+    chrome.storage.local.set({ status: statusSnapshot(extra) });
   }
 
   function resetForVideo() {
@@ -100,6 +108,12 @@
 
   function selectAndApply() {
     if (!playerData) return;
+    const channelRule = Core.channelRuleFor(playerData, settings);
+    if (channelRule?.mode === "disabled") {
+      activePlan = { type: "channel-disabled", reason: "channel-rule-disabled" };
+      saveStatus();
+      return;
+    }
     activePlan = Core.chooseCaptionPlan(playerData, settings);
     saveStatus();
     if (!settings.autoEnableCaptions) return;
@@ -141,7 +155,7 @@
   }
 
   function convertCaptionSegments() {
-    if (!settings.enabled) return;
+    if (!settings.enabled || !playerData?.videoId || activePlan?.type === "channel-disabled") return;
     const localMode = Core.isLocalTextConversionEnabled(settings);
     const needsOpenCC = activePlan?.type === "opencc";
     const converter = needsOpenCC
@@ -398,7 +412,11 @@
       resetForVideo();
       refreshCaptureState();
       selectAndApply();
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, status: statusSnapshot() });
+      return false;
+    }
+    if (message?.type === "ytlang:get-status") {
+      sendResponse({ ok: true, status: statusSnapshot() });
       return false;
     }
     if (message?.type === "ytlang:reapply") {

@@ -21,11 +21,21 @@
   const replacementTo = document.getElementById("replacement-to");
   const replacementList = document.getElementById("replacement-list");
   const replacementError = document.getElementById("replacement-error");
+  const currentChannelName = document.getElementById("current-channel-name");
+  const currentChannelId = document.getElementById("current-channel-id");
+  const addCurrentChannel = document.getElementById("add-current-channel");
+  const channelRuleList = document.getElementById("channel-rule-list");
   const versionLabel = document.getElementById("version-label");
+  const CHANNEL_MODE_LABELS = Object.freeze({
+    disabled: "停用全部",
+    "skip-ocr": "略過 OCR",
+    "force-ocr": "強制 OCR"
+  });
   const ACTION_ICON_SIZES = [16, 32, 48, 128];
   const actionImageDataCache = new Map();
   let settings = Core.mergeSettings();
   let activeTab = null;
+  let currentStatus = null;
 
   function getSync(key) {
     return new Promise((resolve) => chrome.storage.sync.get(key, resolve));
@@ -156,6 +166,8 @@
       : "本機轉換不會送出字幕文字，並保留原始時間軸。";
     renderPriority();
     renderReplacements();
+    renderChannelRules();
+    renderCurrentChannel();
   }
 
   function renderReplacements() {
@@ -224,14 +236,89 @@
     setReplacementRules(settings.customReplacements.filter((_, current) => current !== index));
   }
 
+  function renderCurrentChannel() {
+    const channelId = String(currentStatus?.channelId || "");
+    const channelName = String(currentStatus?.channelName || "");
+    if (!channelId) {
+      currentChannelName.textContent = "目前頁面不是可辨識的 YouTube 影片";
+      currentChannelId.textContent = "";
+      addCurrentChannel.disabled = true;
+      addCurrentChannel.textContent = "將目前頻道加入規則";
+      return;
+    }
+    const exists = settings.channelRules.some((rule) => rule.channelId === channelId);
+    currentChannelName.textContent = channelName || "未命名頻道";
+    currentChannelId.textContent = channelId;
+    addCurrentChannel.disabled = exists;
+    addCurrentChannel.textContent = exists ? "目前頻道已加入" : "將目前頻道加入規則";
+  }
+
+  function renderChannelRules() {
+    channelRuleList.replaceChildren();
+    settings.channelRules.forEach((rule) => {
+      const item = document.createElement("li");
+      item.className = "channel-rule-item";
+      const identity = document.createElement("div");
+      identity.className = "channel-rule-name";
+      const name = document.createElement("strong");
+      name.textContent = rule.channelName;
+      const id = document.createElement("small");
+      id.textContent = rule.channelId;
+      identity.append(name, id);
+
+      const select = document.createElement("select");
+      select.className = "channel-rule-select";
+      select.setAttribute("aria-label", `選擇「${rule.channelName}」的頻道規則`);
+      for (const mode of Core.CHANNEL_RULE_MODES) {
+        const option = document.createElement("option");
+        option.value = mode;
+        option.textContent = CHANNEL_MODE_LABELS[mode];
+        option.selected = rule.mode === mode;
+        select.append(option);
+      }
+      select.addEventListener("change", () => updateChannelRule(rule.channelId, { mode: select.value }));
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "channel-rule-delete";
+      remove.textContent = "刪除";
+      remove.setAttribute("aria-label", `刪除「${rule.channelName}」的頻道規則`);
+      remove.addEventListener("click", () => removeChannelRule(rule.channelId));
+      item.append(identity, select, remove);
+      channelRuleList.append(item);
+    });
+  }
+
+  function setChannelRules(rules) {
+    settings = Core.mergeSettings({ ...settings, channelRules: rules });
+    if (currentStatus?.channelId) {
+      currentStatus.channelRuleMode = settings.channelRules
+        .find((rule) => rule.channelId === currentStatus.channelId)?.mode || "";
+    }
+    renderChannelRules();
+    renderCurrentChannel();
+    save();
+  }
+
+  function updateChannelRule(channelId, patch) {
+    setChannelRules(settings.channelRules.map((rule) => (
+      rule.channelId === channelId ? { ...rule, ...patch } : rule
+    )));
+  }
+
+  function removeChannelRule(channelId) {
+    setChannelRules(settings.channelRules.filter((rule) => rule.channelId !== channelId));
+  }
+
   async function save() {
-    const { customReplacements, ...syncSettings } = settings;
+    const { customReplacements, channelRules, ...syncSettings } = settings;
     await Promise.all([
       chrome.storage.sync.set({ settings: syncSettings }),
-      chrome.storage.local.set({ customReplacements })
+      chrome.storage.local.set({ customReplacements, channelRules })
     ]);
     saveStatus.textContent = "已儲存";
-    await sendToTab({ type: "ytlang:settings-updated", settings });
+    const response = await sendToTab({ type: "ytlang:settings-updated", settings });
+    if (response?.status) renderStatus(response.status);
     window.setTimeout(() => { saveStatus.textContent = "設定會自動儲存"; }, 1300);
   }
 
@@ -254,17 +341,26 @@
   }
 
   function renderStatus(status) {
+    currentStatus = status || null;
+    renderCurrentChannel();
     if (!status?.videoId) return;
     const planLabels = {
       native: "原生字幕",
       opencc: "簡體 → 台灣繁體",
       translate: "自動翻譯 → 繁體中文",
+      "channel-disabled": "此頻道已停用自動功能",
       none: "找不到可用字幕"
     };
     routeStatus.textContent = status.sourceName || planLabels[status.planType] || "字幕規則已就緒";
     routeDetail.textContent = planLabels[status.planType] || "等待套用";
     if (status.targetName) routeDetail.textContent += ` · ${status.targetName}`;
-    if (status.detectionSkipReason === "simplified-only") {
+    if (status.detectionSkipReason === "channel-disabled") {
+      detectorStatus.textContent = "頻道規則 · 已停用全部自動功能";
+    } else if (status.detectionSkipReason === "no-caption-tracks") {
+      detectorStatus.textContent = "已略過 · 影片沒有任何 CC 字幕";
+    } else if (status.detectionSkipReason === "channel-skip-ocr") {
+      detectorStatus.textContent = "頻道規則 · 已略過 OCR";
+    } else if (status.detectionSkipReason === "simplified-only") {
       detectorStatus.textContent = "已略過 · 只有簡體 CC、沒有繁體字幕";
     } else if (status.embeddedDetected) {
       detectorStatus.textContent = "已判定有內嵌字幕，CC 已關閉";
@@ -317,6 +413,16 @@
     save();
   });
 
+  addCurrentChannel.addEventListener("click", () => {
+    const channelId = String(currentStatus?.channelId || "");
+    if (!channelId || settings.channelRules.some((rule) => rule.channelId === channelId)) return;
+    setChannelRules([...settings.channelRules, {
+      channelId,
+      channelName: String(currentStatus?.channelName || "").trim() || "未命名頻道",
+      mode: "skip-ocr"
+    }]);
+  });
+
   replacementForm.addEventListener("submit", (event) => {
     event.preventDefault();
     replacementError.textContent = "";
@@ -361,24 +467,28 @@
     const [stored, tab, local] = await Promise.all([
       getSync("settings"),
       queryActiveTab(),
-      getLocal(["status", "customReplacements"])
+      getLocal(["status", "customReplacements", "channelRules"])
     ]);
     settings = Core.migrateStoredSettings({
       ...stored.settings,
-      customReplacements: local.customReplacements || stored.settings?.customReplacements
+      customReplacements: local.customReplacements || stored.settings?.customReplacements,
+      channelRules: local.channelRules || stored.settings?.channelRules
     });
-    if (stored.settings?.settingsVersion !== settings.settingsVersion || stored.settings?.customReplacements) {
-      const { customReplacements, ...syncSettings } = settings;
+    if (stored.settings?.settingsVersion !== settings.settingsVersion
+      || stored.settings?.customReplacements
+      || stored.settings?.channelRules) {
+      const { customReplacements, channelRules, ...syncSettings } = settings;
       await Promise.all([
         chrome.storage.sync.set({ settings: syncSettings }),
-        chrome.storage.local.set({ customReplacements })
+        chrome.storage.local.set({ customReplacements, channelRules })
       ]);
     }
     activeTab = tab;
     const manifestVersion = chrome.runtime.getManifest?.().version;
     versionLabel.textContent = manifestVersion ? `v${manifestVersion}` : "";
     renderSettings();
-    renderStatus(local.status);
+    const response = await sendToTab({ type: "ytlang:get-status" });
+    renderStatus(response?.status || local.status);
     await updateToolbarState(settings.enabled);
   }
 

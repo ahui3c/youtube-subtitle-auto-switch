@@ -74,6 +74,63 @@ test("略過 OCR 不影響簡體字幕的 YouTube 翻譯計畫", () => {
   }).type, "translate");
 });
 
+test("指定頻道規則會保留頻道識別並排除重複或無效資料", () => {
+  assert.deepEqual(Core.normalizeChannelRules([
+    { channelId: " UC-ONE ", channelName: " 頻道一 ", mode: "force-ocr" },
+    { channelId: "UC-ONE", channelName: "重複頻道", mode: "disabled" },
+    { channelId: "UC-TWO", channelName: "", mode: "unknown" },
+    { channelId: "", channelName: "沒有 ID", mode: "skip-ocr" }
+  ]), [
+    { channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" },
+    { channelId: "UC-TWO", channelName: "未命名頻道", mode: "skip-ocr" }
+  ]);
+});
+
+test("指定頻道會使用穩定的 channelId 比對規則", () => {
+  const rule = Core.channelRuleFor({ channelId: "UC-ONE", channelName: "新顯示名稱" }, {
+    channelRules: [{ channelId: "UC-ONE", channelName: "舊顯示名稱", mode: "disabled" }]
+  });
+  assert.equal(rule.mode, "disabled");
+});
+
+test("指定頻道可停用全部或略過 OCR", () => {
+  const playerData = {
+    channelId: "UC-ONE",
+    captionTracks: [{ languageCode: "zh-TW", name: "中文（繁體）" }]
+  };
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "disabled" }]
+  }), "channel-disabled");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "skip-ocr" }]
+  }), "channel-skip-ocr");
+});
+
+test("強制 OCR 會覆寫簡體字幕略過條件", () => {
+  const playerData = {
+    channelId: "UC-ONE",
+    captionTracks: [{ languageCode: "zh-CN", name: "中文（簡體）" }]
+  };
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    skipEmbeddedDetectionForSimplifiedOnly: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" }]
+  }), "");
+});
+
+test("沒有任何 CC 字幕時不啟動 OCR，強制 OCR 也不能覆寫", () => {
+  const playerData = { channelId: "UC-ONE", captionTracks: [] };
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true
+  }), "no-caption-tracks");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" }]
+  }), "no-caption-tracks");
+});
+
 test("預設不使用人工英文、自動英文及其他語言", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [{ languageCode: "en", name: "English", isTranslatable: true }],
@@ -153,7 +210,7 @@ test("設定合併會排除不存在及重複的停用規則", () => {
 
 test("舊設定只遷移一次到新的字幕預設", () => {
   const migrated = Core.migrateStoredSettings({ simplifiedMode: "opencc", disabledRules: [] });
-  assert.equal(migrated.settingsVersion, 3);
+  assert.equal(migrated.settingsVersion, 4);
   assert.equal(migrated.simplifiedMode, "youtube");
   assert.deepEqual(migrated.disabledRules, ["en-manual", "en-auto", "other"]);
 

@@ -8,6 +8,8 @@
       status: {
         videoId: "preview-video",
         title: "設定面板預覽",
+        channelId: "UC-PREVIEW-CHANNEL",
+        channelName: "字幕研究室",
         planType: "opencc",
         sourceName: "中文（簡體）",
         sourceLanguageCode: "zh-Hans",

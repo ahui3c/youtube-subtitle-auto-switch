@@ -50,6 +50,8 @@
     return {
       videoId: response?.videoDetails?.videoId || new URL(location.href).searchParams.get("v") || "",
       title: response?.videoDetails?.title || document.title.replace(/\s+-\s+YouTube$/, ""),
+      channelId: response?.videoDetails?.channelId || "",
+      channelName: response?.videoDetails?.author || "",
       captionTracks,
       translationLanguages
     };
