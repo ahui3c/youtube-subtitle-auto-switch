@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Youtube 字幕全自動開關",
+  "version": "0.1.1",
+  "description": "依偏好自動選擇 YouTube 字幕，將簡體中文轉為台灣繁體，並可實驗性偵測影片內嵌字幕。",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "icons": {
+    "16": "icons/enabled-16.png",
+    "32": "icons/enabled-32.png",
+    "48": "icons/enabled-48.png",
+    "128": "icons/store-128.png"
+  },
+  "action": {
+    "default_title": "Youtube 字幕全自動開關：已開啟",
+    "default_icon": {
+      "16": "icons/enabled-16.png",
+      "32": "icons/enabled-32.png"
+    },
+    "default_popup": "src/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "src/page-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "js": [
+        "vendor/opencc.js",
+        "src/core.js",
+        "src/content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "minimum_chrome_version": "111"
+}

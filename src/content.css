@@ -1,0 +1,40 @@
+.ytlang-toast {
+  align-items: center;
+  background: #0b1520;
+  border: 1px solid rgba(82, 217, 199, 0.52);
+  border-radius: 10px;
+  bottom: 76px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.36);
+  color: #f4f7f9;
+  display: flex;
+  font: 600 14px/1.45 "Microsoft JhengHei UI", "Noto Sans TC", sans-serif;
+  gap: 12px;
+  left: 50%;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 11px 14px;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 72;
+}
+
+.ytlang-toast button {
+  background: #52d9c7;
+  border: 0;
+  border-radius: 7px;
+  color: #07131b;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  padding: 5px 9px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ytlang-toast {
+    animation: ytlang-rise 180ms ease-out;
+  }
+}
+
+@keyframes ytlang-rise {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}

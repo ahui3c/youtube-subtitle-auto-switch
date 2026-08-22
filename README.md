@@ -1,0 +1,121 @@
+# Youtube 字幕全自動開關
+
+[繁體中文](#繁體中文預設) · [English](#english)
+
+![Youtube 字幕全自動開關介面](store-assets/screenshot-1280x800.png)
+
+## 繁體中文（預設）
+
+「Youtube 字幕全自動開關」是 Chrome Manifest V3 擴充功能，會依照使用者設定的優先順序，自動為 YouTube 影片選擇、開啟或關閉最合適的字幕。
+
+### 主要功能
+
+- 預設依序尋找人工繁體、自動繁體、通用中文、簡體中文等字幕。
+- 支援 YouTube 使用通用 `zh` 代碼、名稱只顯示「中文」的字幕軌。
+- 只有簡體字幕時，預設使用 YouTube 自動翻譯為繁體中文，也可改用 OpenCC 在本機轉換。
+- 每一條字幕規則都能調整順序，並可個別啟用或停用。
+- 「人工英文」、「自動產生的英文」及「其他可翻譯語言」預設停用，需要時才開啟。
+- 支援 YouTube 單頁式網站切換影片，不必重新載入擴充功能。
+- 總開關開啟時顯示彩色工具列圖示，關閉時顯示黑白圖示。
+- 可選擇啟用實驗性的畫面內嵌字幕偵測。偵測到影片已有圖形字幕時，會自動關閉 CC，避免字幕重疊。
+- 內嵌字幕判斷最早可在第三段有效 CC 字幕完成，判斷結束後停止持續監控以節省資源。
+
+### 預設字幕規則
+
+1. 人工繁體中文
+2. 自動產生的繁體中文
+3. 人工中文字幕
+4. 自動產生的中文字幕
+5. 人工簡體中文
+6. 自動產生的簡體中文
+7. 人工英文（預設停用）
+8. 自動產生的英文（預設停用）
+9. 其他可翻譯語言（預設停用）
+
+簡轉繁方式預設使用 YouTube 翻譯。
+
+### 安裝 Release 版本
+
+1. 從 [Releases](https://github.com/ahui3c/youtube-subtitle-auto-switch/releases) 下載最新 ZIP。
+2. 解壓縮 ZIP。
+3. 在 Chrome 開啟 `chrome://extensions`。
+4. 開啟「開發人員模式」。
+5. 選擇「載入未封裝項目」，再選取解壓縮後包含 `manifest.json` 的資料夾。
+
+### 開發與建置
+
+```powershell
+pnpm install
+pnpm run test
+pnpm run build
+```
+
+建置完成後，載入本專案的 `dist` 資料夾。
+
+目前測試涵蓋字幕優先順序、個別規則開關、通用中文字幕、簡轉繁策略、背景擷取授權、工具列圖示狀態，以及內嵌字幕影像判斷。
+
+### 權限與隱私
+
+- `storage`：保存字幕偏好、功能開關與本機執行狀態。
+- `activeTab`：啟用內嵌字幕偵測時，擷取目前可見的 YouTube 分頁供本機分析。
+- `https://www.youtube.com/*`：只在 YouTube 頁面讀取字幕軌、控制字幕與檢查播放器狀態。
+
+字幕內容、影片畫面與分析結果只在使用者的瀏覽器本機處理，不會傳送給開發者或第三方。完整內容請參閱[隱私權政策](https://ahui3c.github.io/youtube-subtitle-auto-switch-privacy/)。
+
+### 內嵌字幕偵測說明
+
+此功能只在有效 CC cue 出現時分析影片底部區域，優先直接讀取影片影格，因此不包含播放器的 CC 圖層。若影片禁止直接讀取影格，才改用分頁截圖並平滑遮罩原生 CC 區域。
+
+這不是完整 OCR。字幕樣式、背景、影片比例、新聞跑馬燈、遊戲 HUD 或歌詞都可能影響判斷，因此此功能預設關閉。
+
+### 已知限制
+
+YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功能透過播放器網頁介面的字幕模組套用字幕軌；YouTube 改版後可能需要更新介接程式。
+
+---
+
+## English
+
+**Youtube Subtitle Auto Switch** is a Chrome Manifest V3 extension that automatically selects, enables, or disables the most suitable YouTube caption track according to a user-configurable priority list.
+
+### Features
+
+- Prioritizes manually created Traditional Chinese captions, followed by automatic Traditional Chinese, generic Chinese, and Simplified Chinese tracks.
+- Recognizes generic `zh` tracks that YouTube may label simply as “Chinese.”
+- Uses YouTube translation to Traditional Chinese by default when only Simplified Chinese captions are available; local OpenCC conversion is also available.
+- Every caption rule can be reordered or individually enabled and disabled.
+- Manual English, automatic English, and other translatable languages are disabled by default.
+- Supports YouTube's single-page navigation between videos.
+- Shows a colored toolbar icon while enabled and a grayscale icon while disabled.
+- Includes an optional experimental detector for burned-in captions. When embedded captions are detected, YouTube CC is disabled to prevent duplicated subtitles.
+- Embedded-caption detection can finish as early as the third valid caption cue and stops monitoring after a decision to reduce resource usage.
+
+### Install a Release Build
+
+1. Download the latest ZIP from [Releases](https://github.com/ahui3c/youtube-subtitle-auto-switch/releases).
+2. Extract the archive.
+3. Open `chrome://extensions` in Chrome.
+4. Enable **Developer mode**.
+5. Choose **Load unpacked** and select the extracted folder containing `manifest.json`.
+
+### Build from Source
+
+```powershell
+pnpm install
+pnpm run test
+pnpm run build
+```
+
+Load the generated `dist` directory as an unpacked extension.
+
+### Permissions and Privacy
+
+- `storage`: Saves caption preferences, feature toggles, and local runtime status.
+- `activeTab`: Captures the visible YouTube tab for local embedded-caption analysis when the optional detector is enabled.
+- `https://www.youtube.com/*`: Reads caption tracks and player state and applies caption choices only on YouTube.
+
+Caption text, video frames, and analysis results are processed locally in the browser and are not sent to the developer or third parties. See the full [Privacy Policy](https://ahui3c.github.io/youtube-subtitle-auto-switch-privacy/).
+
+### Known Limitation
+
+YouTube does not provide a public Web Player API for selecting a specific caption track. This extension uses the caption module exposed by the YouTube player page, so future YouTube changes may require compatibility updates.

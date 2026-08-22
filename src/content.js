@@ -1,0 +1,378 @@
+(function initContentScript() {
+  "use strict";
+
+  const Core = globalThis.YTLangCore;
+  if (!Core) return;
+
+  let settings = Core.mergeSettings();
+  let playerData = null;
+  let activePlan = null;
+  let applyAttempts = 0;
+  let openccConverter = null;
+  let lastCue = "";
+  let captureBusy = false;
+  let captureArmed = false;
+  let pendingCue = null;
+  let activeCueKey = "";
+  let captureGeneration = 0;
+  let detection = freshDetection();
+
+  function freshDetection() {
+    return {
+      startedAt: 0,
+      cueKeys: new Set(),
+      samples: [],
+      lastAnalysis: null,
+      complete: false,
+      detected: false
+    };
+  }
+
+  function storageGet() {
+    return new Promise((resolve) => chrome.storage.sync.get("settings", resolve));
+  }
+
+  async function loadSettings() {
+    const result = await storageGet();
+    settings = Core.migrateStoredSettings(result.settings);
+    if (result.settings?.settingsVersion !== settings.settingsVersion) {
+      await chrome.storage.sync.set({ settings });
+    }
+    captureArmed = settings.embeddedDetection;
+  }
+
+  function saveStatus(extra = {}) {
+    chrome.storage.local.set({
+      status: {
+        videoId: playerData?.videoId || "",
+        title: playerData?.title || "",
+        planType: activePlan?.type || "none",
+        sourceName: activePlan?.track?.name || "",
+        sourceLanguageCode: activePlan?.track?.languageCode || "",
+        targetName: activePlan?.target?.name || "",
+        captureArmed,
+        detectionSamples: detection.samples.length,
+        detectionComplete: detection.complete,
+        embeddedDetected: detection.detected,
+        lastDetectionScore: detection.lastAnalysis ? Math.round(detection.lastAnalysis.score * 100) : null,
+        lastDetectionBand: detection.lastAnalysis ? Math.round(detection.lastAnalysis.bandCenter * 100) : null,
+        ...extra
+      }
+    });
+  }
+
+  function resetForVideo() {
+    captureGeneration += 1;
+    pendingCue = null;
+    activeCueKey = "";
+    activePlan = null;
+    applyAttempts = 0;
+    lastCue = "";
+    detection = freshDetection();
+  }
+
+  function selectAndApply() {
+    if (!playerData) return;
+    activePlan = Core.chooseCaptionPlan(playerData, settings);
+    saveStatus();
+    if (!settings.autoEnableCaptions) return;
+    if (activePlan.type === "none") {
+      document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
+      return;
+    }
+    if (!activePlan.track) return;
+    applyAttempts += 1;
+    document.dispatchEvent(new CustomEvent("ytlang:apply-plan", {
+      detail: { ...activePlan, videoId: playerData.videoId }
+    }));
+  }
+
+  document.addEventListener("ytlang:player-data", (event) => {
+    const next = event.detail;
+    if (!next?.videoId) return;
+    if (playerData?.videoId !== next.videoId) resetForVideo();
+    playerData = next;
+    selectAndApply();
+  });
+
+  document.addEventListener("ytlang:apply-result", (event) => {
+    const result = event.detail || {};
+    if (!result.ok && applyAttempts < 3) {
+      window.setTimeout(selectAndApply, 700 * applyAttempts);
+      return;
+    }
+    saveStatus({ applyOk: Boolean(result.ok), applyMessage: result.message || "" });
+  });
+
+  function getConverter() {
+    if (openccConverter) return openccConverter;
+    if (!globalThis.OpenCC?.Converter) return null;
+    openccConverter = globalThis.OpenCC.Converter({ from: "cn", to: "tw" });
+    return openccConverter;
+  }
+
+  function convertCaptionSegments() {
+    if (activePlan?.type !== "opencc") return;
+    const converter = getConverter();
+    if (!converter) return;
+    for (const segment of document.querySelectorAll(".ytp-caption-segment")) {
+      const current = segment.textContent || "";
+      const converted = converter(current);
+      if (converted !== current) segment.textContent = converted;
+    }
+  }
+
+  function playerElement() {
+    return document.querySelector(".html5-video-player");
+  }
+
+  function videoRect() {
+    const video = videoElement();
+    if (!video) return null;
+    const rect = video.getBoundingClientRect();
+    if (rect.width < 100 || rect.height < 80) return null;
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }
+
+  function videoElement() {
+    return document.querySelector("video.html5-main-video, video");
+  }
+
+  function sendCaptureRequest(rect) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: "ytlang:capture-frame",
+        rect,
+        viewport: { width: innerWidth, height: innerHeight, devicePixelRatio }
+      }, (response) => resolve(chrome.runtime.lastError ? null : response));
+    });
+  }
+
+  function captionMaskRects(videoRect) {
+    const cropTop = videoRect.y + videoRect.height * 0.45;
+    const cropHeight = videoRect.height * 0.55;
+    const selectors = [
+      ".ytp-caption-window-container",
+      ".ytp-caption-window-bottom",
+      ".caption-window",
+      ".ytp-caption-segment",
+      "[class*='caption-window']"
+    ].join(",");
+    return [...document.querySelectorAll(selectors)]
+      .map((node) => node.getBoundingClientRect())
+      .map((rect) => ({
+        left: Math.max(videoRect.x, rect.left),
+        right: Math.min(videoRect.x + videoRect.width, rect.right),
+        top: Math.max(cropTop, rect.top),
+        bottom: Math.min(cropTop + cropHeight, rect.bottom)
+      }))
+      .filter((rect) => rect.right > rect.left && rect.bottom > rect.top)
+      .map((rect) => ({
+        x: ((rect.left - videoRect.x) / videoRect.width) * 720,
+        y: ((rect.top - cropTop) / cropHeight) * 720,
+        width: ((rect.right - rect.left) / videoRect.width) * 720,
+        height: ((rect.bottom - rect.top) / cropHeight) * 720
+      }));
+  }
+
+  function analyzeVideoFrame(video) {
+    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
+    const sourceY = Math.round(video.videoHeight * 0.45);
+    const sourceHeight = video.videoHeight - sourceY;
+    const width = Math.min(720, Math.max(180, video.videoWidth));
+    const height = Math.max(54, Math.round(sourceHeight * (width / video.videoWidth)));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(video, 0, sourceY, video.videoWidth, sourceHeight, 0, 0, width, height);
+    const pixels = context.getImageData(0, 0, width, height).data;
+    return Core.analyzeBottomTextBand(pixels, width, height);
+  }
+
+  async function analyzeScreenshot(dataUrl, rect, masks) {
+    const image = new Image();
+    image.src = dataUrl;
+    await image.decode();
+
+    const scaleX = image.naturalWidth / innerWidth;
+    const scaleY = image.naturalHeight / innerHeight;
+    const sourceX = Math.max(0, Math.round(rect.x * scaleX));
+    const sourceWidth = Math.min(image.naturalWidth - sourceX, Math.round(rect.width * scaleX));
+    const sourceHeight = Math.round(rect.height * scaleY * 0.55);
+    const sourceY = Math.max(0, Math.round((rect.y + rect.height * 0.45) * scaleY));
+    const width = Math.min(720, Math.max(180, sourceWidth));
+    const height = Math.max(54, Math.round(sourceHeight * (width / sourceWidth)));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
+    const pixels = context.getImageData(0, 0, width, height).data;
+    const scaledMasks = masks.map((mask) => ({
+      x: mask.x * (width / 720),
+      y: mask.y * (height / 720),
+      width: mask.width * (width / 720),
+      height: mask.height * (height / 720)
+    }));
+    Core.maskPixelRegions(pixels, width, height, scaledMasks);
+    return Core.analyzeBottomTextBand(pixels, width, height);
+  }
+
+  async function captureAndAnalyze() {
+    const rect = videoRect();
+    const video = videoElement();
+    if (!rect || !video) return null;
+
+    try {
+      const result = analyzeVideoFrame(video);
+      if (result) return result;
+    } catch {}
+
+    const response = await sendCaptureRequest(rect);
+    if (!response?.ok || !response.dataUrl) {
+      saveStatus({ captureError: response?.reason || "capture-unavailable" });
+      return null;
+    }
+    return analyzeScreenshot(response.dataUrl, rect, captionMaskRects(rect));
+  }
+
+  function delay(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function sampleEmbeddedSubtitle(cueKey) {
+    if (detection.complete || !captureArmed || detection.cueKeys.has(cueKey)) return;
+    const generation = captureGeneration;
+    const attempts = [];
+    await delay(260);
+    for (let index = 0; index < 2; index += 1) {
+      if (generation !== captureGeneration || activeCueKey !== cueKey || detection.complete || !captureArmed) break;
+      const result = await captureAndAnalyze();
+      if (result) attempts.push(result);
+      if (index === 0) await delay(560);
+    }
+    if (!attempts.length || generation !== captureGeneration) return;
+
+    const result = attempts.reduce((best, candidate) => candidate.score > best.score ? candidate : best);
+    detection.cueKeys.add(cueKey);
+    detection.lastAnalysis = result;
+    detection.samples.push({ cueKey, ...result });
+    const evaluation = Core.evaluateEmbeddedSamples(detection.samples);
+    saveStatus({ detectionEvaluation: evaluation });
+    if (evaluation.decision === "detected") {
+      detection.complete = true;
+      detection.detected = true;
+      document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
+      showToast(`偵測到影片內嵌字幕，已關閉 CC（信心 ${evaluation.confidence}%）`, true);
+    } else if (evaluation.decision === "not-detected") {
+      detection.complete = true;
+    }
+  }
+
+  async function processCaptureQueue() {
+    if (captureBusy) return;
+    captureBusy = true;
+    try {
+      while (pendingCue && !detection.complete && captureArmed) {
+        const cueKey = pendingCue;
+        pendingCue = null;
+        await sampleEmbeddedSubtitle(cueKey);
+      }
+    } catch (error) {
+      saveStatus({ captureError: String(error?.message || error) });
+    } finally {
+      captureBusy = false;
+      if (pendingCue && !detection.complete && captureArmed) processCaptureQueue();
+    }
+  }
+
+  function queueEmbeddedSample(cueKey) {
+    if (detection.cueKeys.has(cueKey)) return;
+    pendingCue = cueKey;
+    processCaptureQueue();
+  }
+
+  function handleCue(text) {
+    const normalized = Core.normalizeCueText(text);
+    if (!Core.isUsefulCue(normalized) || normalized === lastCue) return;
+    lastCue = normalized;
+    activeCueKey = normalized.toLocaleLowerCase().slice(0, 80);
+    convertCaptionSegments();
+    if (!settings.embeddedDetection || detection.complete) return;
+    if (!detection.startedAt) detection.startedAt = Date.now();
+    if (Date.now() - detection.startedAt > 90_000 || detection.samples.length >= 6) {
+      detection.complete = true;
+      saveStatus();
+      return;
+    }
+    queueEmbeddedSample(activeCueKey);
+  }
+
+  function readCaptionText() {
+    const text = [...document.querySelectorAll(".ytp-caption-segment")]
+      .map((segment) => segment.textContent || "")
+      .join(" ");
+    if (text) handleCue(text);
+  }
+
+  const observer = new MutationObserver(() => {
+    convertCaptionSegments();
+    readCaptionText();
+  });
+
+  function observeBody() {
+    if (!document.body) return window.setTimeout(observeBody, 30);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+
+  function showToast(message, offerUndo = false) {
+    const player = playerElement();
+    if (!player) return;
+    player.querySelector(".ytlang-toast")?.remove();
+    const toast = document.createElement("div");
+    toast.className = "ytlang-toast";
+    toast.setAttribute("role", "status");
+    const label = document.createElement("span");
+    label.textContent = message;
+    toast.append(label);
+    if (offerUndo) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "復原 CC";
+      button.addEventListener("click", () => {
+        detection.detected = false;
+        detection.complete = true;
+        selectAndApply();
+        toast.remove();
+      });
+      toast.append(button);
+    }
+    player.append(toast);
+    window.setTimeout(() => toast.remove(), offerUndo ? 1000 : 3800);
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "ytlang:settings-updated") {
+      settings = Core.mergeSettings(message.settings);
+      captureArmed = settings.embeddedDetection;
+      resetForVideo();
+      selectAndApply();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message?.type === "ytlang:reapply") {
+      resetForVideo();
+      selectAndApply();
+      showToast("已重新套用字幕規則");
+      sendResponse({ ok: true });
+      return false;
+    }
+    return false;
+  });
+
+  loadSettings().then(() => {
+    observeBody();
+    saveStatus();
+  });
+})();

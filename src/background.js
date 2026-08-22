@@ -1,0 +1,52 @@
+"use strict";
+
+const ACTION_ICON_SIZES = [16, 32, 48, 128];
+
+function actionIconPaths(enabled) {
+  const state = enabled ? "enabled" : "disabled";
+  return Object.fromEntries(ACTION_ICON_SIZES.map((size) => [size, `icons/${state}-${size}.png`]));
+}
+
+async function updateActionState(enabled) {
+  await Promise.all([
+    chrome.action.setIcon({ path: actionIconPaths(enabled) }),
+    chrome.action.setTitle({ title: `Youtube 字幕全自動開關：${enabled ? "已開啟" : "已關閉"}` })
+  ]);
+}
+
+async function syncActionState() {
+  const result = await chrome.storage.sync.get("settings");
+  await updateActionState(result.settings?.enabled !== false);
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "sync" || !changes.settings) return;
+  updateActionState(changes.settings.newValue?.enabled !== false);
+});
+
+chrome.runtime.onInstalled.addListener(syncActionState);
+chrome.runtime.onStartup.addListener(syncActionState);
+syncActionState();
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== "ytlang:capture-frame") return false;
+
+  const tabId = sender.tab?.id;
+  if (!Number.isInteger(tabId)) {
+    sendResponse({ ok: false, reason: "capture-unavailable" });
+    return false;
+  }
+
+  Promise.resolve()
+    .then(async () => {
+      const [activeTab] = await chrome.tabs.query({ active: true, windowId: sender.tab.windowId });
+      if (activeTab?.id !== tabId) {
+        sendResponse({ ok: false, reason: "tab-not-active" });
+        return null;
+      }
+      return chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" })
+        .then((dataUrl) => sendResponse({ ok: true, dataUrl }));
+    })
+    .catch((error) => sendResponse({ ok: false, reason: "capture-failed", message: error.message }));
+  return true;
+});

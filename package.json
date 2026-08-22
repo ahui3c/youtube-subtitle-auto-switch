@@ -1,0 +1,14 @@
+{
+  "name": "ytlang",
+  "version": "0.1.1",
+  "private": true,
+  "description": "YouTube 字幕語言優先選擇與內嵌字幕偵測 Chrome 擴充功能",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check src/core.js && node --check src/page-bridge.js && node --check src/content.js && node --check src/background.js && node --check src/popup.js"
+  },
+  "dependencies": {
+    "opencc-js": "1.4.1"
+  }
+}

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07131d"/>
+      <stop offset="1" stop-color="#173445"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#52d9c7"/>
+      <stop offset="1" stop-color="#ffd166"/>
+    </linearGradient>
+  </defs>
+  <rect width="440" height="280" rx="0" fill="url(#bg)"/>
+  <circle cx="367" cy="44" r="110" fill="#52d9c7" opacity=".08"/>
+  <circle cx="52" cy="274" r="110" fill="#ffd166" opacity=".08"/>
+  <rect x="32" y="35" width="72" height="72" rx="20" fill="url(#accent)"/>
+  <rect x="46" y="51" width="44" height="32" rx="9" fill="#0b1520"/>
+  <path d="M54 61h13M54 69h26M54 77h18" stroke="#f4f7f9" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="87" cy="87" r="10" fill="#ff7a68" stroke="#0b1520" stroke-width="4"/>
+  <text x="32" y="151" fill="#f4f7f9" font-family="Microsoft JhengHei UI, sans-serif" font-size="28" font-weight="700">Youtube 字幕全自動開關</text>
+  <text x="33" y="188" fill="#52d9c7" font-family="Microsoft JhengHei UI, sans-serif" font-size="16" font-weight="700">自動選字幕 · 簡轉繁 · 避免重複字幕</text>
+  <rect x="32" y="216" width="144" height="32" rx="16" fill="#ffd166"/>
+  <text x="104" y="238" text-anchor="middle" fill="#0b1520" font-family="Microsoft JhengHei UI, sans-serif" font-size="13" font-weight="700">專為 YouTube 設計</text>
+</svg>

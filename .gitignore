@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+dist/
+release/
+youtube-subtitle-auto-switch-privacy/
+scripts/generate-store-assets.mjs
+store-assets/dashboard-checklist-zh-TW.md
+*.log
