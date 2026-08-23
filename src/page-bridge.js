@@ -95,7 +95,10 @@
       kind: plan.track.kind || undefined
     };
     if (plan.type === "translate" && plan.target?.languageCode) {
-      descriptor.translationLanguage = { languageCode: plan.target.languageCode };
+      descriptor.translationLanguage = {
+        languageCode: plan.target.languageCode,
+        languageName: plan.target.name || plan.target.languageName || plan.target.languageCode
+      };
     }
     player.setOption?.("captions", "track", descriptor);
     ensureCaptionButton(true);

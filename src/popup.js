@@ -15,6 +15,7 @@
   const taiwanTermsEnabled = document.getElementById("taiwanTermsEnabled");
   const hongKongColloquialEnabled = document.getElementById("hongKongColloquialEnabled");
   const termsSection = document.getElementById("terms-section");
+  const customSection = document.getElementById("custom-section");
   const customReplacementsEnabled = document.getElementById("customReplacementsEnabled");
   const replacementForm = document.getElementById("replacement-form");
   const replacementFrom = document.getElementById("replacement-from");
@@ -159,6 +160,10 @@
     termsSection.classList.toggle("is-locked", !localMode);
     termsSection.setAttribute("aria-disabled", String(!localMode));
     customReplacementsEnabled.checked = settings.customReplacementsEnabled;
+    customReplacementsEnabled.disabled = !localMode;
+    customSection.classList.toggle("is-locked", !localMode);
+    customSection.setAttribute("aria-disabled", String(!localMode));
+    for (const control of replacementForm.elements) control.disabled = !localMode;
     const radio = document.querySelector(`input[name="simplifiedMode"][value="${settings.simplifiedMode}"]`);
     if (radio) radio.checked = true;
     simplifiedHint.textContent = settings.simplifiedMode === "youtube"
@@ -172,6 +177,7 @@
 
   function renderReplacements() {
     replacementList.replaceChildren();
+    const localMode = settings.simplifiedMode === "opencc";
     settings.customReplacements.forEach((rule, index) => {
       const item = document.createElement("li");
       item.className = `replacement-item${rule.enabled ? "" : " is-disabled"}`;
@@ -180,6 +186,7 @@
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = rule.enabled;
+      input.disabled = !localMode;
       input.setAttribute("aria-label", `${rule.enabled ? "停用" : "啟用"}「${rule.from}」替換`);
       const visual = document.createElement("span");
       visual.setAttribute("aria-hidden", "true");
@@ -195,18 +202,19 @@
       up.type = "button";
       up.textContent = "↑";
       up.title = "提高優先順序";
-      up.disabled = index === 0;
+      up.disabled = !localMode || index === 0;
       up.addEventListener("click", () => moveReplacement(index, index - 1));
       const down = document.createElement("button");
       down.type = "button";
       down.textContent = "↓";
       down.title = "降低優先順序";
-      down.disabled = index === settings.customReplacements.length - 1;
+      down.disabled = !localMode || index === settings.customReplacements.length - 1;
       down.addEventListener("click", () => moveReplacement(index, index + 1));
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "replacement-delete";
       remove.textContent = "刪除";
+      remove.disabled = !localMode;
       remove.addEventListener("click", () => removeReplacement(index));
       actions.append(up, down, remove);
       item.append(toggle, words, actions);

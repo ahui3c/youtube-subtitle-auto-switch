@@ -8,6 +8,7 @@ let captureCalls = 0;
 let lastIconPath;
 let lastTitle;
 let lastBadgeText;
+let injectedScripts = [];
 
 globalThis.chrome = {
   runtime: {
@@ -42,6 +43,13 @@ globalThis.chrome = {
       lastBadgeText = text;
     },
     async setBadgeBackgroundColor() {
+    }
+  },
+  scripting: {
+    async executeScript(details) {
+      injectedScripts.push(details);
+      if (details.files) globalThis.OpenCC = { Converter() {} };
+      return details.func ? [{ result: Boolean(globalThis.OpenCC?.Converter) }] : [];
     }
   },
   tabs: {
@@ -112,4 +120,16 @@ test("面板可直接要求背景校正工具列圖示", async () => {
   assert.equal(lastIconPath[32], "icons/enabled-32.png");
   assert.equal(lastTitle, "Youtube 字幕全自動開關：已開啟");
   assert.equal(lastBadgeText, "");
+});
+
+test("OpenCC 按需注入後會在同一隔離環境驗證載入結果", async () => {
+  injectedScripts = [];
+  const response = await sendMessage({ type: "ytlang:load-opencc" }, { tab: { id: 7 }, frameId: 0 });
+  assert.deepEqual(response, { ok: true, reason: "" });
+  assert.equal(injectedScripts.length, 2);
+  assert.deepEqual(injectedScripts[0], {
+    target: { tabId: 7, frameIds: [0] },
+    files: ["vendor/opencc.js"]
+  });
+  assert.equal(typeof injectedScripts[1].func, "function");
 });

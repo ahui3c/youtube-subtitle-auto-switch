@@ -10,34 +10,34 @@
 
 ### 主要功能
 
-- 預設依序尋找人工繁體、自動繁體、通用中文、簡體中文等字幕。
+- 預設依序尋找中文繁體字幕、中文字幕及中文簡體字幕；英文與其他可翻譯語言預設停用。
 - 支援 YouTube 使用通用 `zh` 代碼、名稱只顯示「中文」的字幕軌。
 - 只有簡體字幕時，預設使用 YouTube 自動翻譯為繁體中文，也可改用 OpenCC 在本機轉換。
 - 選擇「本機轉換」後，可使用 OpenCC `twp` 將字幕中的中國用語轉為台灣慣用詞，例如「信息 → 資訊」與「保存 → 儲存」。
 - 「香港口語轉普通話」同樣只在本機轉換模式開放；內建保守的高頻口語規則，避免直接替換容易誤判的單字。
-- 支援最多 100 條自訂詞彙替換，可逐條啟用、停用、排序與刪除。
+- 選擇「本機轉換」後，支援最多 100 條自訂詞彙替換，可逐條啟用、停用、排序與刪除；使用 YouTube 翻譯時保留規則但不套用。
 - 支援以穩定的 YouTube 頻道 ID 建立「指定頻道規則」，每個頻道可選擇「停用全部」、「略過 OCR」或「強制 OCR」；規則只保存在目前瀏覽器，介面標示為 VIP 功能。
 - 每一條字幕規則都能調整順序，並可個別啟用或停用。
-- 「人工英文」、「自動產生的英文」及「其他可翻譯語言」預設停用，需要時才開啟。
+- 「英文字幕」、「自動產生的英文字幕」及「其他可翻譯語言字幕」預設停用，需要時才開啟。
 - 支援 YouTube 單頁式網站切換影片，不必重新載入擴充功能。
 - 總開關開啟時顯示彩色工具列圖示，關閉時顯示黑白圖示。
 - 面板會在開啟及切換總開關時，以動態像素資料直接校正工具列圖示，背景服務也會依儲存設定再次同步；停用時另顯示 `OFF` 徽章。
 - 可選擇啟用實驗性的畫面內嵌字幕偵測。偵測到影片已有圖形字幕時，會自動關閉 CC，避免字幕重疊。
-- 內嵌字幕偵測預設略過「有簡體 CC、沒有繁體字幕」的影片；字幕翻譯、簡轉繁、地區用語與自訂替換仍會正常執行。此例外可在面板中關閉。
+- 內嵌字幕偵測預設開啟；「有簡體 CC、沒有繁體字幕時略過偵測」預設關閉，需要時可在面板中開啟。字幕翻譯、簡轉繁、地區用語與自訂替換不受此選項影響。
 - 影片沒有任何 CC 字幕軌時不會啟動畫面擷取或 OCR 取樣；即使該頻道設為「強制 OCR」也會略過，以節省資源。
 - 內嵌字幕判斷最早可在第三段有效 CC 字幕完成，判斷結束後停止持續監控以節省資源。
+- 分頁進入背景、沒有 CC、OCR 判斷完成或總功能關閉時會解除字幕監聽；若已選擇本機轉換，為了持續處理後續字幕，OCR 完成後仍保留必要的文字轉換監聽。
+- OpenCC 詞庫只在選擇「本機轉換」且字幕實際需要轉換時載入目前 YouTube 分頁；預設 YouTube 翻譯模式不載入詞庫。
+- 執行狀態沒有變化時不會重複寫入 `chrome.storage.local`。
 
 ### 預設字幕規則
 
-1. 人工繁體中文
-2. 自動產生的繁體中文
-3. 人工中文字幕
-4. 自動產生的中文字幕
-5. 人工簡體中文
-6. 自動產生的簡體中文
-7. 人工英文（預設停用）
-8. 自動產生的英文（預設停用）
-9. 其他可翻譯語言（預設停用）
+1. 中文繁體字幕
+2. 中文字幕
+3. 中文簡體字幕
+4. 英文字幕（預設停用）
+5. 自動產生的英文字幕（預設停用）
+6. 其他可翻譯語言字幕（預設停用）
 
 簡轉繁方式預設使用 YouTube 翻譯。
 
@@ -67,6 +67,7 @@ pnpm run build
 
 - `storage`：保存字幕偏好、功能開關、自訂替換規則、指定頻道的 ID／名稱／規則類型與本機執行狀態。一般設定使用 Chrome 同步儲存；自訂詞庫與頻道規則為避免同步容量限制，只保存在目前瀏覽器。
 - `activeTab`：啟用內嵌字幕偵測時，擷取目前可見的 YouTube 分頁供本機分析。
+- `scripting`：只在本機字幕轉換實際需要時，將擴充功能套件內附的 OpenCC 詞庫載入目前 YouTube 分頁；不下載或執行遠端程式碼。
 - `https://www.youtube.com/*`：只在 YouTube 頁面讀取字幕軌、控制字幕與檢查播放器狀態。
 
 字幕內容、影片畫面與分析結果只在使用者的瀏覽器本機處理，不會傳送給開發者或第三方。完整內容請參閱[隱私權政策](https://ahui3c.github.io/youtube-subtitle-auto-switch-privacy/)。
@@ -89,12 +90,12 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 
 ### Features
 
-- Prioritizes manually created Traditional Chinese captions, followed by automatic Traditional Chinese, generic Chinese, and Simplified Chinese tracks.
+- Prioritizes Traditional Chinese, generic Chinese, and Simplified Chinese captions; English and other translatable languages are disabled by default.
 - Recognizes generic `zh` tracks that YouTube may label simply as “Chinese.”
 - Uses YouTube translation to Traditional Chinese by default when only Simplified Chinese captions are available; local OpenCC conversion is also available.
 - Uses OpenCC's Taiwan phrase conversion by default for locally displayed captions.
 - Offers an optional experimental set of conservative Hong Kong colloquial-to-Mandarin replacements.
-- Supports up to 100 user-defined replacement rules with per-rule toggles and ordering.
+- In local-conversion mode, supports up to 100 user-defined replacement rules with per-rule toggles and ordering. Rules are retained but not applied while YouTube translation is selected.
 - Supports local per-channel rules keyed by stable YouTube channel IDs. Each channel can disable all automation, skip OCR, or force OCR; the interface marks this as a VIP feature.
 - Every caption rule can be reordered or individually enabled and disabled.
 - Manual English, automatic English, and other translatable languages are disabled by default.

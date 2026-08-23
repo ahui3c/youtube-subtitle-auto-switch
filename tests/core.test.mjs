@@ -35,15 +35,16 @@ test("簡中可以改用本機 OpenCC", () => {
   assert.equal(plan.type, "opencc");
 });
 
-test("只有簡體 CC 且沒有繁體字幕時預設略過內嵌字幕偵測", () => {
+test("預設啟用內嵌字幕偵測且不略過只有簡體 CC 的影片", () => {
   const playerData = {
     captionTracks: [
       { languageCode: "zh-Hans", name: "中文（簡體）" },
       { languageCode: "en", name: "English" }
     ]
   };
-  assert.equal(Core.mergeSettings().skipEmbeddedDetectionForSimplifiedOnly, true);
-  assert.equal(Core.embeddedDetectionSkipReason(playerData, { embeddedDetection: true }), "simplified-only");
+  assert.equal(Core.mergeSettings().embeddedDetection, true);
+  assert.equal(Core.mergeSettings().skipEmbeddedDetectionForSimplifiedOnly, false);
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, { embeddedDetection: true }), "");
 });
 
 test("具有繁體字幕或關閉例外選項時仍執行內嵌字幕偵測", () => {
@@ -67,7 +68,10 @@ test("略過 OCR 不影響簡體字幕的 YouTube 翻譯計畫", () => {
     captionTracks: [{ languageCode: "zh-CN", name: "中文（簡體）", isTranslatable: true }],
     translationLanguages: translations
   };
-  assert.equal(Core.embeddedDetectionSkipReason(playerData, { embeddedDetection: true }), "simplified-only");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    skipEmbeddedDetectionForSimplifiedOnly: true
+  }), "simplified-only");
   assert.equal(Core.chooseCaptionPlan(playerData, {
     embeddedDetection: true,
     skipEmbeddedDetectionForSimplifiedOnly: true
@@ -169,12 +173,12 @@ test("通用 zh 中文字幕會以原生字幕開啟", () => {
   assert.equal(plan.track.languageCode, "zh");
 });
 
-test("通用 zh 自動字幕可由獨立規則控制", () => {
+test("移除後不再選擇通用 zh 自動字幕", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [{ languageCode: "zh", name: "中文", isAutomatic: true }],
     translationLanguages: translations
   }, {});
-  assert.equal(plan.ruleId, "zh-auto");
+  assert.equal(plan.type, "none");
 });
 
 test("較長的中文腳本代碼仍可正確分類", () => {
@@ -182,7 +186,7 @@ test("較長的中文腳本代碼仍可正確分類", () => {
   assert.equal(Core.familyOf({ languageCode: "zh-Hans-CN", name: "中文" }), "simplified");
 });
 
-test("停用個別字幕規則後會改用下一個啟用項目", () => {
+test("移除自動繁中規則後停用人工繁中便不選擇該軌", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [
       { languageCode: "zh-Hant", name: "繁中人工字幕" },
@@ -190,8 +194,7 @@ test("停用個別字幕規則後會改用下一個啟用項目", () => {
     ],
     translationLanguages: translations
   }, { disabledRules: ["trad-manual"] });
-  assert.equal(plan.ruleId, "trad-auto");
-  assert.equal(plan.track.name, "繁中自動字幕");
+  assert.equal(plan.type, "none");
 });
 
 test("全部規則停用時不選擇任何字幕", () => {
@@ -210,7 +213,7 @@ test("設定合併會排除不存在及重複的停用規則", () => {
 
 test("舊設定只遷移一次到新的字幕預設", () => {
   const migrated = Core.migrateStoredSettings({ simplifiedMode: "opencc", disabledRules: [] });
-  assert.equal(migrated.settingsVersion, 4);
+  assert.equal(migrated.settingsVersion, 5);
   assert.equal(migrated.simplifiedMode, "youtube");
   assert.deepEqual(migrated.disabledRules, ["en-manual", "en-auto", "other"]);
 
@@ -234,6 +237,40 @@ test("地區用語只有在本機轉換模式啟用", () => {
   assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "youtube" }), false);
   assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "opencc" }), true);
   assert.equal(Core.isLocalTextConversionEnabled({ enabled: false, simplifiedMode: "opencc" }), false);
+});
+
+test("自訂詞彙替換只有在本機轉換模式啟用", () => {
+  assert.equal(Core.shouldApplyCustomReplacements({
+    enabled: true,
+    simplifiedMode: "youtube",
+    customReplacementsEnabled: true
+  }), false);
+  assert.equal(Core.shouldApplyCustomReplacements({
+    enabled: true,
+    simplifiedMode: "opencc",
+    customReplacementsEnabled: true
+  }), true);
+  assert.equal(Core.shouldApplyCustomReplacements({
+    enabled: true,
+    simplifiedMode: "opencc",
+    customReplacementsEnabled: false
+  }), false);
+});
+
+test("字幕監聽會依背景、CC、OCR 與總開關自動停止", () => {
+  const youtubeMode = Core.mergeSettings({ simplifiedMode: "youtube" });
+  const localMode = Core.mergeSettings({ simplifiedMode: "opencc" });
+  const active = { hasVideo: true, hasCaptionTracks: true };
+  assert.equal(Core.shouldMonitorCaptions(youtubeMode, { ...active, captureArmed: true }), true);
+  assert.equal(Core.shouldMonitorCaptions(youtubeMode, {
+    ...active,
+    captureArmed: true,
+    detectionComplete: true
+  }), false);
+  assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, detectionComplete: true }), true);
+  assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, documentHidden: true }), false);
+  assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, hasCaptionTracks: false }), false);
+  assert.equal(Core.shouldMonitorCaptions({ ...localMode, enabled: false }, active), false);
 });
 
 test("香港常見口語可轉為普通話且較長詞優先", () => {
@@ -262,13 +299,32 @@ test("自訂替換會排除空白、重複及無效規則", () => {
   ]), [{ from: "A", to: "B", enabled: true }]);
 });
 
-test("舊版優先順序會在繁中之後插入新增的中文字幕規則", () => {
+test("舊版優先順序會移除三個自動產生的中文規則", () => {
   const oldPriority = [
     "trad-manual", "trad-auto", "simp-manual", "simp-auto", "en-manual", "en-auto", "other"
   ];
   const settings = Core.mergeSettings({ priority: oldPriority });
-  assert.deepEqual(settings.priority.slice(0, 6), [
-    "trad-manual", "trad-auto", "zh-manual", "zh-auto", "simp-manual", "simp-auto"
+  assert.deepEqual(settings.priority, [
+    "trad-manual", "zh-manual", "simp-manual", "en-manual", "en-auto", "other"
+  ]);
+});
+
+test("字幕優先順序使用整理後的六個顯示名稱", () => {
+  assert.deepEqual(Core.RULES.map((rule) => rule.id), [
+    "trad-manual",
+    "zh-manual",
+    "simp-manual",
+    "en-manual",
+    "en-auto",
+    "other"
+  ]);
+  assert.deepEqual(Core.RULES.map((rule) => rule.label), [
+    "中文繁體字幕",
+    "中文字幕",
+    "中文簡體字幕",
+    "英文字幕",
+    "自動產生的英文字幕",
+    "其他可翻譯語言字幕"
   ]);
 });
 

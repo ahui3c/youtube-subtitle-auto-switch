@@ -38,6 +38,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "ytlang:load-opencc") {
+    const tabId = sender.tab?.id;
+    const frameId = sender.frameId || 0;
+    if (!Number.isInteger(tabId)) {
+      sendResponse({ ok: false, reason: "tab-unavailable" });
+      return false;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      files: ["vendor/opencc.js"]
+    }).then(() => chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      func: () => Boolean(globalThis.OpenCC?.Converter)
+    })).then((results) => {
+      const loaded = results.some((result) => result.result === true);
+      sendResponse({ ok: loaded, reason: loaded ? "" : "opencc-unavailable" });
+    }).catch((error) => sendResponse({ ok: false, reason: "opencc-load-failed", message: error.message }));
+    return true;
+  }
+
   if (message?.type !== "ytlang:capture-frame") return false;
 
   const tabId = sender.tab?.id;

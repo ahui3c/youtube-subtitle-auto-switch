@@ -2,18 +2,15 @@
   "use strict";
 
   const RULES = Object.freeze([
-    { id: "trad-manual", label: "人工繁體中文", family: "traditional", automatic: false, action: "native" },
-    { id: "trad-auto", label: "自動產生的繁體中文", family: "traditional", automatic: true, action: "native" },
-    { id: "zh-manual", label: "人工中文字幕", family: "chinese", automatic: false, action: "native" },
-    { id: "zh-auto", label: "自動產生的中文字幕", family: "chinese", automatic: true, action: "native" },
-    { id: "simp-manual", label: "人工簡體中文", family: "simplified", automatic: false, action: "simplified" },
-    { id: "simp-auto", label: "自動產生的簡體中文", family: "simplified", automatic: true, action: "simplified" },
-    { id: "en-manual", label: "人工英文", family: "english", automatic: false, action: "translate" },
-    { id: "en-auto", label: "自動產生的英文", family: "english", automatic: true, action: "translate" },
-    { id: "other", label: "其他可翻譯語言", family: "other", automatic: null, action: "translate" }
+    { id: "trad-manual", label: "中文繁體字幕", family: "traditional", automatic: false, action: "native" },
+    { id: "zh-manual", label: "中文字幕", family: "chinese", automatic: false, action: "native" },
+    { id: "simp-manual", label: "中文簡體字幕", family: "simplified", automatic: false, action: "simplified" },
+    { id: "en-manual", label: "英文字幕", family: "english", automatic: false, action: "translate" },
+    { id: "en-auto", label: "自動產生的英文字幕", family: "english", automatic: true, action: "translate" },
+    { id: "other", label: "其他可翻譯語言字幕", family: "other", automatic: null, action: "translate" }
   ]);
 
-  const SETTINGS_VERSION = 4;
+  const SETTINGS_VERSION = 5;
   const DEFAULT_DISABLED_RULES = Object.freeze(["en-manual", "en-auto", "other"]);
   const CHANNEL_RULE_MODES = Object.freeze(["disabled", "skip-ocr", "force-ocr"]);
 
@@ -72,8 +69,8 @@
     enabled: true,
     autoEnableCaptions: true,
     simplifiedMode: "youtube",
-    embeddedDetection: false,
-    skipEmbeddedDetectionForSimplifiedOnly: true,
+    embeddedDetection: true,
+    skipEmbeddedDetectionForSimplifiedOnly: false,
     taiwanTermsEnabled: true,
     hongKongColloquialEnabled: false,
     customReplacementsEnabled: true,
@@ -144,7 +141,7 @@
       ...input,
       settingsVersion: SETTINGS_VERSION,
       simplifiedMode: input.simplifiedMode === "opencc" ? "opencc" : "youtube",
-      skipEmbeddedDetectionForSimplifiedOnly: input.skipEmbeddedDetectionForSimplifiedOnly !== false,
+      skipEmbeddedDetectionForSimplifiedOnly: input.skipEmbeddedDetectionForSimplifiedOnly === true,
       taiwanTermsEnabled: input.taiwanTermsEnabled !== false,
       hongKongColloquialEnabled: input.hongKongColloquialEnabled === true,
       customReplacementsEnabled: input.customReplacementsEnabled !== false,
@@ -230,6 +227,20 @@
 
   function isLocalTextConversionEnabled(settings) {
     return settings?.enabled !== false && settings?.simplifiedMode === "opencc";
+  }
+
+  function shouldApplyCustomReplacements(settings) {
+    return isLocalTextConversionEnabled(settings) && settings?.customReplacementsEnabled !== false;
+  }
+
+  function shouldMonitorCaptions(settings, state = {}) {
+    if (state.documentHidden || settings?.enabled === false || !state.hasVideo || !state.hasCaptionTracks) {
+      return false;
+    }
+    if (state.planType === "channel-disabled") return false;
+    const needsLocalConversion = isLocalTextConversionEnabled(settings);
+    const needsEmbeddedDetection = state.captureArmed === true && state.detectionComplete !== true;
+    return needsLocalConversion || needsEmbeddedDetection;
   }
 
   function findTraditionalTarget(translationLanguages) {
@@ -487,6 +498,8 @@
     applyLiteralReplacements,
     applyHongKongColloquial,
     isLocalTextConversionEnabled,
+    shouldApplyCustomReplacements,
+    shouldMonitorCaptions,
     findTraditionalTarget,
     chooseCaptionPlan,
     channelRuleFor,

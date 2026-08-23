@@ -76,7 +76,7 @@
       <p class="hint">處理順序：香港口語 → 台灣用語 → 自訂替換。語境不同時仍可能需要自行修正。</p>
     </section>
 
-    <section class="section compact" aria-labelledby="custom-title">
+    <section id="custom-section" class="section compact custom-section" aria-labelledby="custom-title">
       <div class="section-heading">
         <div>
           <p class="kicker">最高覆寫優先權</p>
@@ -87,6 +87,7 @@
         </div>
         <label class="inline-switch"><input id="customReplacementsEnabled" type="checkbox" aria-label="啟用自訂詞彙替換"><span aria-hidden="true"></span></label>
       </div>
+      <p class="lock-hint" role="status">請先在上方選擇「本機轉換」才能使用。</p>
       <form id="replacement-form" class="replacement-form">
         <input id="replacement-from" maxlength="80" placeholder="原詞，例如：出租車" aria-label="要取代的原詞">
         <span aria-hidden="true">→</span>

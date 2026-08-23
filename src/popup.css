@@ -238,9 +238,9 @@ input:focus-visible + span { outline: 2px solid var(--caption); outline-offset: 
 }
 .option-row strong { display: block; font-size: 12px; }
 .option-row small { color: var(--muted); display: block; font-size: 10px; margin-top: 3px; }
-.terms-section.is-locked { border-color: #263c49; }
-.terms-section.is-locked .option-row { opacity: .48; }
-.terms-section.is-locked .inline-switch { cursor: not-allowed; }
+.terms-section.is-locked, .custom-section.is-locked { border-color: #263c49; }
+.terms-section.is-locked .option-row, .custom-section.is-locked .replacement-form, .custom-section.is-locked .replacement-list { opacity: .48; }
+.terms-section.is-locked .inline-switch, .custom-section.is-locked .inline-switch { cursor: not-allowed; }
 .lock-hint {
   background: rgba(255, 209, 102, .1);
   border-radius: 6px;
@@ -250,7 +250,7 @@ input:focus-visible + span { outline: 2px solid var(--caption); outline-offset: 
   margin: 10px 0 0;
   padding: 7px 8px;
 }
-.terms-section:not(.is-locked) .lock-hint { display: none; }
+.terms-section:not(.is-locked) .lock-hint, .custom-section:not(.is-locked) .lock-hint { display: none; }
 .replacement-form { align-items: center; display: grid; gap: 5px; grid-template-columns: 1fr auto 1fr auto; margin-top: 12px; }
 .replacement-form input {
   background: #0b1923;
@@ -262,6 +262,7 @@ input:focus-visible + span { outline: 2px solid var(--caption); outline-offset: 
   padding: 8px;
 }
 .replacement-form input:focus { border-color: var(--route); outline: 0; }
+.replacement-form input:disabled, .replacement-form button:disabled { cursor: not-allowed; }
 .replacement-form span { color: var(--muted); font-size: 11px; }
 .replacement-form button, .replacement-delete {
   background: var(--route);

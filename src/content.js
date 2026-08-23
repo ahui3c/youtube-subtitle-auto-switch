@@ -10,6 +10,7 @@
   let applyAttempts = 0;
   const openccConverters = new Map();
   let processedSegments = new WeakMap();
+  let originalSegmentText = new WeakMap();
   let lastCue = "";
   let captureBusy = false;
   let captureArmed = false;
@@ -17,6 +18,10 @@
   let activeCueKey = "";
   let captureGeneration = 0;
   let detection = freshDetection();
+  let observerActive = false;
+  let observerStartTimer = 0;
+  let openccLoadPromise = null;
+  let lastSavedStatusJson = "";
 
   function freshDetection() {
     return {
@@ -41,6 +46,7 @@
       activeCueKey = "";
       detection.complete = true;
     }
+    syncCaptionMonitoring();
   }
 
   function storageGet(area, key) {
@@ -92,7 +98,11 @@
   }
 
   function saveStatus(extra = {}) {
-    chrome.storage.local.set({ status: statusSnapshot(extra) });
+    const status = statusSnapshot(extra);
+    const serialized = JSON.stringify(status);
+    if (serialized === lastSavedStatusJson) return;
+    lastSavedStatusJson = serialized;
+    chrome.storage.local.set({ status });
   }
 
   function resetForVideo() {
@@ -104,6 +114,7 @@
     lastCue = "";
     detection = freshDetection();
     processedSegments = new WeakMap();
+    originalSegmentText = new WeakMap();
   }
 
   function selectAndApply() {
@@ -111,10 +122,12 @@
     const channelRule = Core.channelRuleFor(playerData, settings);
     if (channelRule?.mode === "disabled") {
       activePlan = { type: "channel-disabled", reason: "channel-rule-disabled" };
+      syncCaptionMonitoring();
       saveStatus();
       return;
     }
     activePlan = Core.chooseCaptionPlan(playerData, settings);
+    syncCaptionMonitoring();
     saveStatus();
     if (!settings.autoEnableCaptions) return;
     if (activePlan.type === "none") {
@@ -154,13 +167,41 @@
     return converter;
   }
 
+  function openccTarget() {
+    const localMode = Core.isLocalTextConversionEnabled(settings);
+    if (!localMode) return "";
+    if (activePlan?.type === "opencc") return settings.taiwanTermsEnabled ? "twp" : "tw";
+    return settings.taiwanTermsEnabled ? "twp" : "";
+  }
+
+  function ensureOpenCC() {
+    if (globalThis.OpenCC?.Converter) return Promise.resolve(true);
+    if (openccLoadPromise) return openccLoadPromise;
+    openccLoadPromise = new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "ytlang:load-opencc" }, (response) => {
+        resolve(!chrome.runtime.lastError && response?.ok && Boolean(globalThis.OpenCC?.Converter));
+      });
+    }).finally(() => { openccLoadPromise = null; });
+    return openccLoadPromise;
+  }
+
   function convertCaptionSegments() {
     if (!settings.enabled || !playerData?.videoId || activePlan?.type === "channel-disabled") return;
     const localMode = Core.isLocalTextConversionEnabled(settings);
-    const needsOpenCC = activePlan?.type === "opencc";
-    const converter = needsOpenCC
-      ? getConverter(localMode && settings.taiwanTermsEnabled ? "twp" : "tw")
-      : localMode && settings.taiwanTermsEnabled ? getConverter("twp") : null;
+    const target = openccTarget();
+    if (target && !globalThis.OpenCC?.Converter) {
+      ensureOpenCC().then((loaded) => {
+        if (!loaded) {
+          saveStatus({ conversionError: "opencc-load-failed" });
+          return;
+        }
+        processedSegments = new WeakMap();
+        originalSegmentText = new WeakMap();
+        convertCaptionSegments();
+      });
+      return;
+    }
+    const converter = target ? getConverter(target) : null;
     for (const segment of document.querySelectorAll(".ytp-caption-segment")) {
       const current = segment.textContent || "";
       if (processedSegments.get(segment) === current) continue;
@@ -168,10 +209,11 @@
         ? Core.applyHongKongColloquial(current)
         : current;
       if (converter) converted = converter(converted);
-      if (settings.customReplacementsEnabled) {
+      if (Core.shouldApplyCustomReplacements(settings)) {
         converted = Core.applyLiteralReplacements(converted, settings.customReplacements);
       }
       processedSegments.set(segment, converted);
+      originalSegmentText.set(segment, current);
       if (converted !== current) segment.textContent = converted;
     }
   }
@@ -317,10 +359,12 @@
     if (evaluation.decision === "detected") {
       detection.complete = true;
       detection.detected = true;
+      syncCaptionMonitoring();
       document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
       showToast(`偵測到影片內嵌字幕，已關閉 CC（信心 ${evaluation.confidence}%）`, true);
     } else if (evaluation.decision === "not-detected") {
       detection.complete = true;
+      syncCaptionMonitoring();
     }
   }
 
@@ -357,6 +401,7 @@
     if (!detection.startedAt) detection.startedAt = Date.now();
     if (Date.now() - detection.startedAt > 90_000 || detection.samples.length >= 6) {
       detection.complete = true;
+      syncCaptionMonitoring();
       saveStatus();
       return;
     }
@@ -365,7 +410,12 @@
 
   function readCaptionText() {
     const text = [...document.querySelectorAll(".ytp-caption-segment")]
-      .map((segment) => segment.textContent || "")
+      .map((segment) => {
+        const current = segment.textContent || "";
+        return processedSegments.get(segment) === current
+          ? originalSegmentText.get(segment) || current
+          : current;
+      })
       .join(" ");
     if (text) handleCue(text);
   }
@@ -375,10 +425,38 @@
     readCaptionText();
   });
 
-  function observeBody() {
-    if (!document.body) return window.setTimeout(observeBody, 30);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  function captionMonitoringNeeded() {
+    return Core.shouldMonitorCaptions(settings, {
+      documentHidden: document.visibilityState === "hidden",
+      hasVideo: Boolean(playerData?.videoId),
+      hasCaptionTracks: Boolean(playerData?.captionTracks?.length),
+      planType: activePlan?.type,
+      captureArmed,
+      detectionComplete: detection.complete
+    });
   }
+
+  function syncCaptionMonitoring() {
+    if (observerStartTimer) window.clearTimeout(observerStartTimer);
+    observerStartTimer = 0;
+    if (!captionMonitoringNeeded()) {
+      if (observerActive) observer.disconnect();
+      observerActive = false;
+      return;
+    }
+    if (!document.body) {
+      observerStartTimer = window.setTimeout(syncCaptionMonitoring, 30);
+      return;
+    }
+    if (!observerActive) {
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      observerActive = true;
+      convertCaptionSegments();
+      readCaptionText();
+    }
+  }
+
+  document.addEventListener("visibilitychange", syncCaptionMonitoring);
 
   function showToast(message, offerUndo = false) {
     const player = playerElement();
@@ -431,7 +509,7 @@
   });
 
   loadSettings().then(() => {
-    observeBody();
+    syncCaptionMonitoring();
     saveStatus();
   });
 })();

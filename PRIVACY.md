@@ -25,6 +25,7 @@
 
 - `storage`：保存字幕偏好、功能開關及本機執行狀態。
 - `activeTab`：在啟用內嵌字幕偵測時，擷取目前可見的 YouTube 分頁供本機分析。
+- `scripting`：只在本機字幕轉換實際需要時，將擴充功能套件內附的 OpenCC 詞庫載入目前 YouTube 分頁；不下載或執行遠端程式碼。
 - `https://www.youtube.com/*`：只在 YouTube 頁面讀取字幕軌、控制字幕與檢查播放器狀態。
 
 ## 聯絡方式
