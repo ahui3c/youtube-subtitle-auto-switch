@@ -399,6 +399,38 @@ test("內嵌字幕最早可在第三個 cue 判定成功", () => {
   assert.equal(detected.decision, "detected");
 });
 
+test("片頭一個位置離群樣本不會否決後續三段一致的內嵌字幕", () => {
+  const samples = [
+    { score: 0.94, hash: "intro", bandCenter: 0.31 },
+    { score: 0.96, hash: "subtitle-a", bandCenter: 0.82 },
+    { score: 1, hash: "subtitle-b", bandCenter: 0.82 },
+    { score: 0.92, hash: "subtitle-c", bandCenter: 0.81 }
+  ];
+
+  const firstThree = Core.evaluateEmbeddedSamples(samples.slice(0, 3));
+  assert.equal(firstThree.decision, "pending");
+  assert.equal(firstThree.consistentPositiveCount, 2);
+
+  const detected = Core.evaluateEmbeddedSamples(samples);
+  assert.equal(detected.decision, "detected");
+  assert.equal(detected.consistentPositiveCount, 3);
+  assert.ok(detected.centerSpread <= 0.24);
+});
+
+test("六段樣本沒有三個位置一致時仍不判定內嵌字幕", () => {
+  const result = Core.evaluateEmbeddedSamples([
+    { score: 0.9, hash: "a", bandCenter: 0.05 },
+    { score: 0.9, hash: "b", bandCenter: 0.35 },
+    { score: 0.9, hash: "c", bandCenter: 0.65 },
+    { score: 0.9, hash: "d", bandCenter: 0.95 },
+    { score: 0.9, hash: "e", bandCenter: 0.2 },
+    { score: 0.9, hash: "f", bandCenter: 0.8 }
+  ]);
+
+  assert.equal(result.decision, "not-detected");
+  assert.ok(result.consistentPositiveCount < 3);
+});
+
 function image(width, height, color = [26, 32, 38]) {
   const pixels = new Uint8ClampedArray(width * height * 4);
   for (let index = 0; index < width * height; index += 1) {
@@ -493,4 +525,47 @@ test("CC 遮罩會以左右鄰近像素平滑填補而非留下高對比字幕",
       assert.equal(pixels[offset], 30);
     }
   }
+});
+
+test("CC 遮罩排除覆蓋整個影片的容器並保留實際字幕範圍", () => {
+  const videoRect = { x: 20, y: -275, width: 1284, height: 722 };
+  const cropTop = videoRect.y + videoRect.height * 0.45;
+  const regions = Core.captionMaskRegions(videoRect, [
+    {
+      left: videoRect.x,
+      right: videoRect.x + videoRect.width,
+      top: videoRect.y,
+      bottom: videoRect.y + videoRect.height
+    },
+    {
+      left: 460,
+      right: 860,
+      top: cropTop + 260,
+      bottom: cropTop + 310
+    }
+  ]);
+
+  assert.equal(regions.length, 1);
+  assert.ok(regions[0].width > 0);
+  assert.ok(regions[0].height > 0);
+  assert.ok(regions[0].width * regions[0].height < 720 * 720 * 0.25);
+});
+
+test("CC 遮罩過大時不會破壞 OCR 分析區域", () => {
+  const width = 320;
+  const height = 180;
+  const pixels = image(width, height, [30, 30, 30]);
+  const before = pixels.slice();
+  const videoRect = { x: 0, y: 0, width, height: height / 0.55 };
+  const cropTop = videoRect.height * 0.45;
+  const regions = Core.captionMaskRegions(videoRect, [{
+    left: 0,
+    right: width,
+    top: cropTop,
+    bottom: cropTop + height
+  }]);
+
+  Core.maskPixelRegions(pixels, width, height, regions);
+  assert.deepEqual(regions, []);
+  assert.deepEqual(pixels, before);
 });

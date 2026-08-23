@@ -124,6 +124,15 @@
     if (serialized === lastSavedStatusJson) return;
     lastSavedStatusJson = serialized;
     document.documentElement?.setAttribute("data-ytlang-content-state", `${status.videoId}:${status.planType}:${status.detectionSkipReason || "ready"}`);
+    document.documentElement?.setAttribute("data-ytlang-detection-state", JSON.stringify({
+      samples: status.detectionSamples,
+      complete: status.detectionComplete,
+      detected: status.embeddedDetected,
+      score: status.lastDetectionScore,
+      band: status.lastDetectionBand,
+      captureError: status.captureError || "",
+      evaluation: status.detectionEvaluation || null
+    }));
     chrome.storage.local.set({ status });
   }
 
@@ -290,30 +299,17 @@
   }
 
   function captionMaskRects(videoRect) {
-    const cropTop = videoRect.y + videoRect.height * 0.45;
-    const cropHeight = videoRect.height * 0.55;
     const selectors = [
-      ".ytp-caption-window-container",
       ".ytp-caption-window-bottom",
       ".caption-window",
       ".ytp-caption-segment",
-      "[class*='caption-window']"
+      "[class*='caption-window']:not(.ytp-caption-window-container)"
     ].join(",");
-    return [...document.querySelectorAll(selectors)]
-      .map((node) => node.getBoundingClientRect())
-      .map((rect) => ({
-        left: Math.max(videoRect.x, rect.left),
-        right: Math.min(videoRect.x + videoRect.width, rect.right),
-        top: Math.max(cropTop, rect.top),
-        bottom: Math.min(cropTop + cropHeight, rect.bottom)
-      }))
-      .filter((rect) => rect.right > rect.left && rect.bottom > rect.top)
-      .map((rect) => ({
-        x: ((rect.left - videoRect.x) / videoRect.width) * 720,
-        y: ((rect.top - cropTop) / cropHeight) * 720,
-        width: ((rect.right - rect.left) / videoRect.width) * 720,
-        height: ((rect.bottom - rect.top) / cropHeight) * 720
-      }));
+    const rects = [...document.querySelectorAll(selectors)].map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    });
+    return Core.captionMaskRegions(videoRect, rects);
   }
 
   function analyzeVideoFrame(video) {

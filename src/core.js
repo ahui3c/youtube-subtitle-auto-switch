@@ -342,6 +342,35 @@
     return cjkCount >= 2 || latinCount >= 4 || text.length >= 6;
   }
 
+  function captionMaskRegions(videoRect, rawRects) {
+    const videoX = Number(videoRect?.x);
+    const videoY = Number(videoRect?.y);
+    const videoWidth = Number(videoRect?.width);
+    const videoHeight = Number(videoRect?.height);
+    if (![videoX, videoY, videoWidth, videoHeight].every(Number.isFinite)
+      || videoWidth <= 0 || videoHeight <= 0) return [];
+
+    const cropTop = videoY + videoHeight * 0.45;
+    const cropHeight = videoHeight * 0.55;
+    const cropArea = videoWidth * cropHeight;
+    return (Array.isArray(rawRects) ? rawRects : [])
+      .map((rect) => ({
+        left: Math.max(videoX, Number(rect?.left)),
+        right: Math.min(videoX + videoWidth, Number(rect?.right)),
+        top: Math.max(cropTop, Number(rect?.top)),
+        bottom: Math.min(cropTop + cropHeight, Number(rect?.bottom))
+      }))
+      .filter((rect) => Object.values(rect).every(Number.isFinite))
+      .filter((rect) => rect.right > rect.left && rect.bottom > rect.top)
+      .filter((rect) => ((rect.right - rect.left) * (rect.bottom - rect.top)) / cropArea <= 0.25)
+      .map((rect) => ({
+        x: ((rect.left - videoX) / videoWidth) * 720,
+        y: ((rect.top - cropTop) / cropHeight) * 720,
+        width: ((rect.right - rect.left) / videoWidth) * 720,
+        height: ((rect.bottom - rect.top) / cropHeight) * 720
+      }));
+  }
+
   function clamp01(value) {
     return Math.max(0, Math.min(1, value));
   }
@@ -486,17 +515,29 @@
       return { decision: "pending", confidence: 0, positiveCount: 0, sampleCount: usable.length };
     }
     const positives = usable.filter((sample) => sample.score >= 0.5);
-    const uniqueHashes = new Set(positives.map((sample) => sample.hash).filter(Boolean));
-    const average = positives.length
-      ? positives.reduce((total, sample) => total + sample.score, 0) / positives.length
+    const centered = positives
+      .filter((sample) => Number.isFinite(sample.bandCenter))
+      .sort((left, right) => left.bandCenter - right.bandCenter);
+    let consistent = [];
+    for (let start = 0; start < centered.length; start += 1) {
+      let end = start;
+      while (end + 1 < centered.length
+        && centered[end + 1].bandCenter - centered[start].bandCenter <= 0.24) end += 1;
+      const candidate = centered.slice(start, end + 1);
+      if (candidate.length > consistent.length) consistent = candidate;
+    }
+    const uniqueHashes = new Set(consistent.map((sample) => sample.hash).filter(Boolean));
+    const average = consistent.length
+      ? consistent.reduce((total, sample) => total + sample.score, 0) / consistent.length
       : 0;
-    const centers = positives.map((sample) => sample.bandCenter).filter(Number.isFinite);
+    const centers = consistent.map((sample) => sample.bandCenter);
     const centerSpread = centers.length ? Math.max(...centers) - Math.min(...centers) : 1;
-    const detected = positives.length >= 3 && uniqueHashes.size >= 2 && average >= 0.57 && centerSpread <= 0.24;
+    const detected = consistent.length >= 3 && uniqueHashes.size >= 2 && average >= 0.57;
     return {
       decision: detected ? "detected" : usable.length >= 6 ? "not-detected" : "pending",
       confidence: Math.round(average * 100),
       positiveCount: positives.length,
+      consistentPositiveCount: consistent.length,
       sampleCount: usable.length,
       centerSpread
     };
@@ -526,6 +567,7 @@
     embeddedDetectionSkipReason,
     normalizeCueText,
     isUsefulCue,
+    captionMaskRegions,
     maskPixelRegions,
     analyzeBottomTextBand,
     evaluateEmbeddedSamples
