@@ -240,6 +240,8 @@ input:focus-visible + span { outline: 2px solid var(--caption); outline-offset: 
 .option-row small { color: var(--muted); display: block; font-size: 10px; margin-top: 3px; }
 .terms-section.is-locked, .custom-section.is-locked { border-color: #263c49; }
 .terms-section.is-locked .option-row, .custom-section.is-locked .replacement-form, .custom-section.is-locked .replacement-list { opacity: .48; }
+.terms-section.is-locked .feature-title-row h2, .custom-section.is-locked .feature-title-row h2 { color: #718593; }
+.custom-section.is-locked > .section-heading .inline-switch { opacity: .48; }
 .terms-section.is-locked .inline-switch, .custom-section.is-locked .inline-switch { cursor: not-allowed; }
 .lock-hint {
   background: rgba(255, 209, 102, .1);

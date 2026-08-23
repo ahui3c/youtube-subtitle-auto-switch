@@ -117,24 +117,24 @@
         <button id="add-current-channel" class="secondary" type="button">將目前頻道加入規則</button>
       </div>
       <ol id="channel-rule-list" class="channel-rule-list"></ol>
-      <p class="hint">強制 OCR 只會覆寫其他略過條件；全域「偵測畫面內嵌字幕」關閉時仍不會啟動。</p>
+      <p class="hint">強制 OCR 只會覆寫其他略過條件；全域「圖形 OCR 偵測內嵌字幕」關閉時仍不會啟動。</p>
     </section>
 
     <section class="section compact detector" aria-labelledby="detector-title">
       <div class="detector-row">
         <div>
           <p class="kicker">實驗性功能</p>
-          <h2 id="detector-title">偵測畫面內嵌字幕</h2>
+          <h2 id="detector-title">圖形 OCR 偵測內嵌字幕</h2>
         </div>
         <label class="inline-switch">
-          <input id="embeddedDetection" type="checkbox" aria-label="啟用畫面內嵌字幕偵測">
+          <input id="embeddedDetection" type="checkbox" aria-label="啟用圖形 OCR 偵測內嵌字幕">
           <span aria-hidden="true"></span>
         </label>
       </div>
       <p class="hint">只在 CC 出現有效文字時取樣。功能開啟後會自動擷取目前正在播放的 YouTube 分頁，不必開啟此面板。</p>
       <div class="option-row detector-option">
         <div><strong>簡體 CC 時略過偵測</strong><small>有簡體、沒有繁體字幕時不執行 OCR；字幕轉換與替換仍正常運作</small></div>
-        <label class="inline-switch"><input id="skipEmbeddedDetectionForSimplifiedOnly" type="checkbox" aria-label="只有簡體 CC 且沒有繁體字幕時略過畫面內嵌字幕偵測"><span aria-hidden="true"></span></label>
+        <label class="inline-switch"><input id="skipEmbeddedDetectionForSimplifiedOnly" type="checkbox" aria-label="只有簡體 CC 且沒有繁體字幕時略過圖形 OCR 偵測"><span aria-hidden="true"></span></label>
       </div>
       <div id="detector-status" class="detector-status">尚未取樣</div>
     </section>
