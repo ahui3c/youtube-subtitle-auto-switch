@@ -40,14 +40,33 @@
       <ol id="priority-list" class="track-list"></ol>
     </section>
 
+    <section class="section compact detector" aria-labelledby="detector-title">
+      <div class="detector-row">
+        <div>
+          <p class="kicker">實驗性功能</p>
+          <h2 id="detector-title">圖形 OCR 偵測內嵌字幕</h2>
+        </div>
+        <label class="inline-switch">
+          <input id="embeddedDetection" type="checkbox" aria-label="啟用圖形 OCR 偵測內嵌字幕">
+          <span aria-hidden="true"></span>
+        </label>
+      </div>
+      <p class="hint">只在 CC 出現有效文字時取樣。功能開啟後會自動擷取目前正在播放的 YouTube 分頁，不必開啟此面板。</p>
+      <div class="option-row detector-option">
+        <div><strong>簡體 CC 時略過偵測</strong><small>有簡體、沒有繁體字幕時不執行 OCR；字幕轉換與替換仍正常運作</small></div>
+        <label class="inline-switch"><input id="skipEmbeddedDetectionForSimplifiedOnly" type="checkbox" aria-label="只有簡體 CC 且沒有繁體字幕時略過圖形 OCR 偵測"><span aria-hidden="true"></span></label>
+      </div>
+      <div id="detector-status" class="detector-status">尚未取樣</div>
+    </section>
+
     <section class="section compact" aria-labelledby="conversion-title">
       <div class="section-heading">
         <div>
           <p class="kicker">只有簡體字幕時</p>
-          <h2 id="conversion-title">簡轉繁方式</h2>
+          <h2 id="conversion-title">全自動簡轉繁</h2>
         </div>
       </div>
-      <div class="segmented" role="radiogroup" aria-label="簡轉繁方式">
+      <div class="segmented" role="radiogroup" aria-label="全自動簡轉繁">
         <label><input type="radio" name="simplifiedMode" value="opencc"><span>本機轉換</span></label>
         <label><input type="radio" name="simplifiedMode" value="youtube"><span>YouTube 翻譯</span></label>
       </div>
@@ -65,8 +84,8 @@
         </div>
       </div>
       <div class="option-row">
-        <div><strong>台灣用語</strong><small>使用 OpenCC 台灣慣用詞庫</small></div>
-        <label class="inline-switch"><input id="taiwanTermsEnabled" type="checkbox" aria-label="啟用台灣用語轉換"><span aria-hidden="true"></span></label>
+        <div><strong>使用台灣用語顯示</strong><small>使用 OpenCC 台灣慣用詞庫</small></div>
+        <label class="inline-switch"><input id="taiwanTermsEnabled" type="checkbox" aria-label="使用台灣用語顯示"><span aria-hidden="true"></span></label>
       </div>
       <div class="option-row">
         <div><strong>香港口語轉普通話</strong><small>實驗性 · 僅轉換高信心常見詞</small></div>
@@ -118,25 +137,6 @@
       </div>
       <ol id="channel-rule-list" class="channel-rule-list"></ol>
       <p class="hint">強制 OCR 只會覆寫其他略過條件；全域「圖形 OCR 偵測內嵌字幕」關閉時仍不會啟動。</p>
-    </section>
-
-    <section class="section compact detector" aria-labelledby="detector-title">
-      <div class="detector-row">
-        <div>
-          <p class="kicker">實驗性功能</p>
-          <h2 id="detector-title">圖形 OCR 偵測內嵌字幕</h2>
-        </div>
-        <label class="inline-switch">
-          <input id="embeddedDetection" type="checkbox" aria-label="啟用圖形 OCR 偵測內嵌字幕">
-          <span aria-hidden="true"></span>
-        </label>
-      </div>
-      <p class="hint">只在 CC 出現有效文字時取樣。功能開啟後會自動擷取目前正在播放的 YouTube 分頁，不必開啟此面板。</p>
-      <div class="option-row detector-option">
-        <div><strong>簡體 CC 時略過偵測</strong><small>有簡體、沒有繁體字幕時不執行 OCR；字幕轉換與替換仍正常運作</small></div>
-        <label class="inline-switch"><input id="skipEmbeddedDetectionForSimplifiedOnly" type="checkbox" aria-label="只有簡體 CC 且沒有繁體字幕時略過圖形 OCR 偵測"><span aria-hidden="true"></span></label>
-      </div>
-      <div id="detector-status" class="detector-status">尚未取樣</div>
     </section>
 
     <footer>
