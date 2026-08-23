@@ -135,6 +135,47 @@ test("沒有任何 CC 字幕時不啟動 OCR，強制 OCR 也不能覆寫", () =
   }), "no-caption-tracks");
 });
 
+test("字幕軌資料缺失但播放器已顯示有效 CC 時仍可啟動 OCR", () => {
+  const playerData = {
+    channelId: "UC-ONE",
+    captionTracks: [],
+    hasRenderedCaptionCue: true
+  };
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true
+  }), "");
+  assert.equal(Core.shouldMonitorCaptions(Core.mergeSettings(), {
+    hasVideo: true,
+    hasCaptionTracks: false,
+    hasRenderedCaptionCue: true,
+    captureArmed: true,
+    detectionComplete: false
+  }), true);
+});
+
+test("字幕軌資料暫缺但 YouTube CC 控制可用時仍會自動開啟字幕", () => {
+  const playerData = {
+    captionTracks: [],
+    hasCaptionControl: true
+  };
+  assert.equal(Core.chooseCaptionPlan(playerData, {}).type, "toggle");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true
+  }), "");
+});
+
+test("字幕軌清單暫空時只會實際探測一次 CC 按鈕", () => {
+  const playerData = { videoId: "VIDEO", captionTracks: [] };
+  assert.equal(Core.shouldProbeCaptionControl(playerData, {}, false), true);
+  assert.equal(Core.shouldProbeCaptionControl(playerData, {}, true), false);
+  assert.equal(Core.shouldProbeCaptionControl({ ...playerData, hasCaptionControl: true }, {}, false), false);
+  assert.equal(Core.shouldProbeCaptionControl({ ...playerData, captionTracks: [{}] }, {}, false), false);
+  assert.equal(Core.shouldProbeCaptionControl(playerData, { autoEnableCaptions: false }, false), false);
+  assert.equal(Core.shouldProbeCaptionControl(playerData, {
+    disabledRules: Core.RULES.map((rule) => rule.id)
+  }, false), false);
+});
+
 test("預設不使用人工英文、自動英文及其他語言", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [{ languageCode: "en", name: "English", isTranslatable: true }],
@@ -171,6 +212,15 @@ test("通用 zh 中文字幕會以原生字幕開啟", () => {
   assert.equal(plan.type, "native");
   assert.equal(plan.ruleId, "zh-manual");
   assert.equal(plan.track.languageCode, "zh");
+});
+
+test("沒有 ASR kind 或 a. vssId 的 zh 軌應視為人工中文字幕", () => {
+  const plan = Core.chooseCaptionPlan({
+    captionTracks: [{ languageCode: "zh", name: "中文", kind: "", vssId: ".zh" }],
+    translationLanguages: translations
+  }, {});
+  assert.equal(plan.type, "native");
+  assert.equal(plan.ruleId, "zh-manual");
 });
 
 test("移除後不再選擇通用 zh 自動字幕", () => {

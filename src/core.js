@@ -234,7 +234,8 @@
   }
 
   function shouldMonitorCaptions(settings, state = {}) {
-    if (state.documentHidden || settings?.enabled === false || !state.hasVideo || !state.hasCaptionTracks) {
+    if (state.documentHidden || settings?.enabled === false || !state.hasVideo
+      || (!state.hasCaptionTracks && !state.hasRenderedCaptionCue)) {
       return false;
     }
     if (state.planType === "channel-disabled") return false;
@@ -258,7 +259,11 @@
     if (!settings.enabled) return { type: "disabled", reason: "extension-disabled" };
 
     const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
-    if (!tracks.length) return { type: "none", reason: "no-caption-tracks" };
+    if (!tracks.length) {
+      return playerData?.hasCaptionControl === true
+        ? { type: "toggle", reason: "caption-metadata-unavailable" }
+        : { type: "none", reason: "no-caption-tracks" };
+    }
 
     const disabledRules = new Set(settings.disabledRules);
     const rules = settings.priority
@@ -293,6 +298,18 @@
     return { type: "none", reason: "no-matching-rule" };
   }
 
+  function shouldProbeCaptionControl(playerData, rawSettings, alreadyProbed = false) {
+    const settings = mergeSettings(rawSettings);
+    const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
+    return settings.enabled !== false
+      && settings.autoEnableCaptions !== false
+      && Boolean(playerData?.videoId)
+      && tracks.length === 0
+      && playerData?.hasCaptionControl !== true
+      && alreadyProbed !== true
+      && settings.disabledRules.length < RULES.length;
+  }
+
   function embeddedDetectionSkipReason(playerData, rawSettings) {
     const settings = mergeSettings(rawSettings);
     const channelId = String(playerData?.channelId || "").trim();
@@ -300,7 +317,9 @@
     if (channelRule?.mode === "disabled") return "channel-disabled";
     if (!settings.embeddedDetection) return "";
     const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
-    if (!tracks.length) return "no-caption-tracks";
+    if (!tracks.length && playerData?.hasRenderedCaptionCue !== true && playerData?.hasCaptionControl !== true) {
+      return "no-caption-tracks";
+    }
     if (channelRule?.mode === "skip-ocr") return "channel-skip-ocr";
     if (channelRule?.mode === "force-ocr") return "";
     if (!settings.skipEmbeddedDetectionForSimplifiedOnly) return "";
@@ -502,6 +521,7 @@
     shouldMonitorCaptions,
     findTraditionalTarget,
     chooseCaptionPlan,
+    shouldProbeCaptionControl,
     channelRuleFor,
     embeddedDetectionSkipReason,
     normalizeCueText,

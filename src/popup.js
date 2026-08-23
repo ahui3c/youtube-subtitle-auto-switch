@@ -356,6 +356,7 @@
       native: "原生字幕",
       opencc: "簡體 → 台灣繁體",
       translate: "自動翻譯 → 繁體中文",
+      toggle: "已開啟 YouTube 可用字幕",
       "channel-disabled": "此頻道已停用自動功能",
       none: "找不到可用字幕"
     };

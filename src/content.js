@@ -8,6 +8,7 @@
   let playerData = null;
   let activePlan = null;
   let applyAttempts = 0;
+  let captionProbeState = "idle";
   const openccConverters = new Map();
   let processedSegments = new WeakMap();
   let originalSegmentText = new WeakMap();
@@ -22,6 +23,26 @@
   let observerStartTimer = 0;
   let openccLoadPromise = null;
   let lastSavedStatusJson = "";
+
+  function eventDataAttribute(type) {
+    return `data-${type.replace(/:/g, "-")}`;
+  }
+
+  function emitEvent(type, detail) {
+    if (detail !== undefined) {
+      document.documentElement?.setAttribute(eventDataAttribute(type), JSON.stringify(detail));
+    }
+    document.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+
+  function eventDetail(event, type) {
+    if (event?.detail && typeof event.detail === "object") return event.detail;
+    try {
+      return JSON.parse(document.documentElement?.getAttribute(eventDataAttribute(type)) || "null");
+    } catch {
+      return null;
+    }
+  }
 
   function freshDetection() {
     return {
@@ -102,6 +123,7 @@
     const serialized = JSON.stringify(status);
     if (serialized === lastSavedStatusJson) return;
     lastSavedStatusJson = serialized;
+    document.documentElement?.setAttribute("data-ytlang-content-state", `${status.videoId}:${status.planType}:${status.detectionSkipReason || "ready"}`);
     chrome.storage.local.set({ status });
   }
 
@@ -111,6 +133,7 @@
     activeCueKey = "";
     activePlan = null;
     applyAttempts = 0;
+    captionProbeState = "idle";
     lastCue = "";
     detection = freshDetection();
     processedSegments = new WeakMap();
@@ -130,19 +153,29 @@
     syncCaptionMonitoring();
     saveStatus();
     if (!settings.autoEnableCaptions) return;
+    if (activePlan.type === "toggle") {
+      applyAttempts += 1;
+      emitEvent("ytlang:enable-captions", { videoId: playerData.videoId });
+      return;
+    }
     if (activePlan.type === "none") {
+      const alreadyProbed = captionProbeState !== "idle";
+      if (Core.shouldProbeCaptionControl(playerData, settings, alreadyProbed)) {
+        captionProbeState = "pending";
+        emitEvent("ytlang:probe-captions", { videoId: playerData.videoId });
+        return;
+      }
+      if (captionProbeState === "pending") return;
       document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
       return;
     }
     if (!activePlan.track) return;
     applyAttempts += 1;
-    document.dispatchEvent(new CustomEvent("ytlang:apply-plan", {
-      detail: { ...activePlan, videoId: playerData.videoId }
-    }));
+    emitEvent("ytlang:apply-plan", { ...activePlan, videoId: playerData.videoId });
   }
 
   document.addEventListener("ytlang:player-data", (event) => {
-    const next = event.detail;
+    const next = eventDetail(event, "ytlang:player-data");
     if (!next?.videoId) return;
     if (playerData?.videoId !== next.videoId) resetForVideo();
     playerData = next;
@@ -151,7 +184,19 @@
   });
 
   document.addEventListener("ytlang:apply-result", (event) => {
-    const result = event.detail || {};
+    const result = eventDetail(event, "ytlang:apply-result") || {};
+    if (result.type === "probe") {
+      if (result.ok && result.videoId === playerData?.videoId) {
+        captionProbeState = "success";
+        playerData = { ...playerData, hasCaptionControl: true };
+        activePlan = { type: "toggle", reason: "caption-control-probe" };
+        refreshCaptureState();
+      } else if (result.videoId === playerData?.videoId) {
+        captionProbeState = "failed";
+      }
+      saveStatus({ applyOk: Boolean(result.ok), applyMessage: result.message || "" });
+      return;
+    }
     if (!result.ok && applyAttempts < 3) {
       window.setTimeout(selectAndApply, 700 * applyAttempts);
       return;
@@ -429,7 +474,8 @@
     return Core.shouldMonitorCaptions(settings, {
       documentHidden: document.visibilityState === "hidden",
       hasVideo: Boolean(playerData?.videoId),
-      hasCaptionTracks: Boolean(playerData?.captionTracks?.length),
+      hasCaptionTracks: Boolean(playerData?.captionTracks?.length) || playerData?.hasCaptionControl === true,
+      hasRenderedCaptionCue: playerData?.hasRenderedCaptionCue === true,
       planType: activePlan?.type,
       captureArmed,
       detectionComplete: detection.complete
