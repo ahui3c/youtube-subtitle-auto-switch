@@ -12,7 +12,16 @@
 
   const SETTINGS_VERSION = 5;
   const DEFAULT_DISABLED_RULES = Object.freeze(["en-manual", "en-auto", "other"]);
-  const CHANNEL_RULE_MODES = Object.freeze(["disabled", "skip-ocr", "force-ocr"]);
+  const CHANNEL_RULE_MODES = Object.freeze([
+    "disabled",
+    "skip-ocr",
+    "force-ocr",
+    "force-enable-no-ocr",
+    "force-disable-no-ocr"
+  ]);
+  const MAX_CUSTOM_REPLACEMENTS = 40;
+  const MAX_CHANNEL_RULES = 10;
+  const MIN_EMBEDDED_SUBTITLE_BAND_CENTER = 0.45;
 
   // Curated conservative mappings only. Ambiguous single-character replacements
   // are deliberately excluded because they can corrupt names and formal Chinese.
@@ -145,8 +154,8 @@
       taiwanTermsEnabled: input.taiwanTermsEnabled !== false,
       hongKongColloquialEnabled: input.hongKongColloquialEnabled === true,
       customReplacementsEnabled: input.customReplacementsEnabled !== false,
-      customReplacements: normalizeReplacementRules(input.customReplacements).slice(0, 100),
-      channelRules: normalizeChannelRules(input.channelRules).slice(0, 200),
+      customReplacements: normalizeReplacementRules(input.customReplacements).slice(0, MAX_CUSTOM_REPLACEMENTS),
+      channelRules: normalizeChannelRules(input.channelRules).slice(0, MAX_CHANNEL_RULES),
       priority,
       disabledRules
     };
@@ -238,7 +247,7 @@
       || (!state.hasCaptionTracks && !state.hasRenderedCaptionCue)) {
       return false;
     }
-    if (state.planType === "channel-disabled") return false;
+    if (state.planType === "channel-disabled" || state.planType === "channel-force-disable") return false;
     const needsLocalConversion = isLocalTextConversionEnabled(settings);
     const needsEmbeddedDetection = state.captureArmed === true && state.detectionComplete !== true;
     return needsLocalConversion || needsEmbeddedDetection;
@@ -315,6 +324,8 @@
     const channelId = String(playerData?.channelId || "").trim();
     const channelRule = settings.channelRules.find((rule) => rule.channelId === channelId);
     if (channelRule?.mode === "disabled") return "channel-disabled";
+    if (channelRule?.mode === "force-enable-no-ocr") return "channel-force-enable-no-ocr";
+    if (channelRule?.mode === "force-disable-no-ocr") return "channel-force-disable-no-ocr";
     if (!settings.embeddedDetection) return "";
     const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
     if (!tracks.length && playerData?.hasRenderedCaptionCue !== true && playerData?.hasCaptionControl !== true) {
@@ -514,7 +525,11 @@
     if (usable.length < 3) {
       return { decision: "pending", confidence: 0, positiveCount: 0, sampleCount: usable.length };
     }
-    const positives = usable.filter((sample) => sample.score >= 0.5);
+    const positives = usable.filter((sample) => (
+      sample.score >= 0.5
+      && Number.isFinite(sample.bandCenter)
+      && sample.bandCenter >= MIN_EMBEDDED_SUBTITLE_BAND_CENTER
+    ));
     const centered = positives
       .filter((sample) => Number.isFinite(sample.bandCenter))
       .sort((left, right) => left.bandCenter - right.bandCenter);
@@ -546,6 +561,9 @@
   global.YTLangCore = Object.freeze({
     RULES,
     CHANNEL_RULE_MODES,
+    MAX_CUSTOM_REPLACEMENTS,
+    MAX_CHANNEL_RULES,
+    MIN_EMBEDDED_SUBTITLE_BAND_CENTER,
     HONG_KONG_COLLOQUIAL_RULES,
     DEFAULT_SETTINGS,
     normalizeLanguageCode,

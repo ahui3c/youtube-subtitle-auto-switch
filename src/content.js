@@ -158,10 +158,32 @@
       saveStatus();
       return;
     }
+    if (settings.enabled && channelRule?.mode === "force-disable-no-ocr") {
+      activePlan = { type: "channel-force-disable", reason: "channel-rule-force-disable" };
+      syncCaptionMonitoring();
+      saveStatus();
+      document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
+      return;
+    }
+    const forceEnable = settings.enabled && channelRule?.mode === "force-enable-no-ocr";
     activePlan = Core.chooseCaptionPlan(playerData, settings);
+    if (forceEnable && activePlan.type === "none") {
+      activePlan = { type: "channel-force-enable", reason: "channel-rule-force-enable" };
+    }
     syncCaptionMonitoring();
     saveStatus();
-    if (!settings.autoEnableCaptions) return;
+    if (!settings.autoEnableCaptions && !forceEnable) return;
+    if (activePlan.type === "channel-force-enable") {
+      applyAttempts += 1;
+      if (!playerData.captionTracks?.length && playerData.hasCaptionControl !== true) {
+        if (captionProbeState !== "idle") return;
+        captionProbeState = "pending";
+        emitEvent("ytlang:probe-captions", { videoId: playerData.videoId });
+      } else {
+        emitEvent("ytlang:enable-captions", { videoId: playerData.videoId });
+      }
+      return;
+    }
     if (activePlan.type === "toggle") {
       applyAttempts += 1;
       emitEvent("ytlang:enable-captions", { videoId: playerData.videoId });

@@ -29,8 +29,10 @@
   const versionLabel = document.getElementById("version-label");
   const CHANNEL_MODE_LABELS = Object.freeze({
     disabled: "停用全部",
-    "skip-ocr": "略過 OCR",
-    "force-ocr": "強制 OCR"
+    "skip-ocr": "略過 OCR 字幕辨識",
+    "force-ocr": "強制 OCR 字幕辨識",
+    "force-enable-no-ocr": "強置開啟字幕，不 OCR 偵測",
+    "force-disable-no-ocr": "強置關閉字幕，不 OCR 偵測"
   });
   const ACTION_ICON_SIZES = [16, 32, 48, 128];
   const actionImageDataCache = new Map();
@@ -255,10 +257,15 @@
       return;
     }
     const exists = settings.channelRules.some((rule) => rule.channelId === channelId);
+    const reachedLimit = settings.channelRules.length >= Core.MAX_CHANNEL_RULES;
     currentChannelName.textContent = channelName || "未命名頻道";
     currentChannelId.textContent = channelId;
-    addCurrentChannel.disabled = exists;
-    addCurrentChannel.textContent = exists ? "目前頻道已加入" : "將目前頻道加入規則";
+    addCurrentChannel.disabled = exists || reachedLimit;
+    addCurrentChannel.textContent = exists
+      ? "目前頻道已加入"
+      : reachedLimit
+        ? `已達 ${Core.MAX_CHANNEL_RULES} 條上限`
+        : "將目前頻道加入規則";
   }
 
   function renderChannelRules() {
@@ -358,6 +365,8 @@
       translate: "自動翻譯 → 繁體中文",
       toggle: "已開啟 YouTube 可用字幕",
       "channel-disabled": "此頻道已停用自動功能",
+      "channel-force-enable": "頻道規則：強置開啟字幕",
+      "channel-force-disable": "頻道規則：強置關閉字幕",
       none: "找不到可用字幕"
     };
     routeStatus.textContent = status.sourceName || planLabels[status.planType] || "字幕規則已就緒";
@@ -365,10 +374,14 @@
     if (status.targetName) routeDetail.textContent += ` · ${status.targetName}`;
     if (status.detectionSkipReason === "channel-disabled") {
       detectorStatus.textContent = "頻道規則 · 已停用全部自動功能";
+    } else if (status.detectionSkipReason === "channel-force-enable-no-ocr") {
+      detectorStatus.textContent = "頻道規則 · 強置開啟字幕，不進行 OCR";
+    } else if (status.detectionSkipReason === "channel-force-disable-no-ocr") {
+      detectorStatus.textContent = "頻道規則 · 強置關閉字幕，不進行 OCR";
     } else if (status.detectionSkipReason === "no-caption-tracks") {
       detectorStatus.textContent = "已略過 · 影片沒有任何 CC 字幕";
     } else if (status.detectionSkipReason === "channel-skip-ocr") {
-      detectorStatus.textContent = "頻道規則 · 已略過 OCR";
+      detectorStatus.textContent = "頻道規則 · 已略過 OCR 字幕辨識";
     } else if (status.detectionSkipReason === "simplified-only") {
       detectorStatus.textContent = "已略過 · 只有簡體 CC、沒有繁體字幕";
     } else if (status.embeddedDetected) {
@@ -424,7 +437,9 @@
 
   addCurrentChannel.addEventListener("click", () => {
     const channelId = String(currentStatus?.channelId || "");
-    if (!channelId || settings.channelRules.some((rule) => rule.channelId === channelId)) return;
+    if (!channelId
+      || settings.channelRules.length >= Core.MAX_CHANNEL_RULES
+      || settings.channelRules.some((rule) => rule.channelId === channelId)) return;
     setChannelRules([...settings.channelRules, {
       channelId,
       channelName: String(currentStatus?.channelName || "").trim() || "未命名頻道",
@@ -449,8 +464,8 @@
       replacementError.textContent = "這個原詞已經有替換規則。";
       return;
     }
-    if (settings.customReplacements.length >= 100) {
-      replacementError.textContent = "自訂規則最多 100 條。";
+    if (settings.customReplacements.length >= Core.MAX_CUSTOM_REPLACEMENTS) {
+      replacementError.textContent = `自訂規則最多 ${Core.MAX_CUSTOM_REPLACEMENTS} 條。`;
       return;
     }
     setReplacementRules([...settings.customReplacements, { from, to, enabled: true }]);

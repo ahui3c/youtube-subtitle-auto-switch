@@ -15,8 +15,8 @@
 - 只有簡體字幕時，預設使用 YouTube 自動翻譯為繁體中文，也可改用 OpenCC 在本機轉換。
 - 選擇「本機轉換」後，可使用 OpenCC `twp` 將字幕中的中國用語轉為台灣慣用詞，例如「信息 → 資訊」與「保存 → 儲存」。
 - 「香港口語轉普通話」同樣只在本機轉換模式開放；內建保守的高頻口語規則，避免直接替換容易誤判的單字。
-- 選擇「本機轉換」後，支援最多 100 條自訂詞彙替換，可逐條啟用、停用、排序與刪除；使用 YouTube 翻譯時保留規則但不套用。
-- 支援以穩定的 YouTube 頻道 ID 建立「指定頻道規則」，每個頻道可選擇「停用全部」、「略過 OCR」或「強制 OCR」；規則只保存在目前瀏覽器，介面標示為 VIP 功能。
+- 選擇「本機轉換」後，支援最多 40 條自訂詞彙替換，可逐條啟用、停用、排序與刪除；使用 YouTube 翻譯時保留規則但不套用。
+- 支援以穩定的 YouTube 頻道 ID 建立最多 10 條「指定頻道規則」，每個頻道可選擇「停用全部」、「略過 OCR 字幕辨識」、「強制 OCR 字幕辨識」、「強置開啟字幕，不 OCR 偵測」或「強置關閉字幕，不 OCR 偵測」；規則只保存在目前瀏覽器，介面標示為 VIP 功能。
 - 每一條字幕規則都能調整順序，並可個別啟用或停用。
 - 「英文字幕」、「自動產生的英文字幕」及「其他可翻譯語言字幕」預設停用，需要時才開啟。
 - 支援 YouTube 單頁式網站切換影片，不必重新載入擴充功能。
@@ -24,7 +24,7 @@
 - 面板會在開啟及切換總開關時，以動態像素資料直接校正工具列圖示，背景服務也會依儲存設定再次同步；停用時另顯示 `OFF` 徽章。
 - 可選擇啟用實驗性的畫面內嵌字幕偵測。偵測到影片已有圖形字幕時，會自動關閉 CC，避免字幕重疊。
 - 內嵌字幕偵測預設開啟；「有簡體 CC、沒有繁體字幕時略過偵測」預設關閉，需要時可在面板中開啟。字幕翻譯、簡轉繁、地區用語與自訂替換不受此選項影響。
-- 影片沒有任何 CC 字幕軌時不會啟動畫面擷取或 OCR 取樣；即使該頻道設為「強制 OCR」也會略過，以節省資源。
+- 影片沒有任何 CC 字幕軌時不會啟動畫面擷取或 OCR 取樣；即使該頻道設為「強制 OCR 字幕辨識」也會略過，以節省資源。
 - 內嵌字幕判斷最早可在第三段有效 CC 字幕完成，判斷結束後停止持續監控以節省資源。
 - 分頁進入背景、沒有 CC、OCR 判斷完成或總功能關閉時會解除字幕監聽；若已選擇本機轉換，為了持續處理後續字幕，OCR 完成後仍保留必要的文字轉換監聽。
 - OpenCC 詞庫只在選擇「本機轉換」且字幕實際需要轉換時載入目前 YouTube 分頁；預設 YouTube 翻譯模式不載入詞庫。
@@ -95,8 +95,8 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 - Uses YouTube translation to Traditional Chinese by default when only Simplified Chinese captions are available; local OpenCC conversion is also available.
 - Uses OpenCC's Taiwan phrase conversion by default for locally displayed captions.
 - Offers an optional experimental set of conservative Hong Kong colloquial-to-Mandarin replacements.
-- In local-conversion mode, supports up to 100 user-defined replacement rules with per-rule toggles and ordering. Rules are retained but not applied while YouTube translation is selected.
-- Supports local per-channel rules keyed by stable YouTube channel IDs. Each channel can disable all automation, skip OCR, or force OCR; the interface marks this as a VIP feature.
+- In local-conversion mode, supports up to 40 user-defined replacement rules with per-rule toggles and ordering. Rules are retained but not applied while YouTube translation is selected.
+- Supports up to 10 local per-channel rules keyed by stable YouTube channel IDs. Each channel can disable all automation, skip OCR, force OCR, force captions on without OCR, or force captions off without OCR; the interface marks this as a VIP feature.
 - Every caption rule can be reordered or individually enabled and disabled.
 - Manual English, automatic English, and other translatable languages are disabled by default.
 - Supports YouTube's single-page navigation between videos.

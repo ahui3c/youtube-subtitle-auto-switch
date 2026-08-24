@@ -88,6 +88,25 @@ test("指定頻道規則會保留頻道識別並排除重複或無效資料", ()
     { channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" },
     { channelId: "UC-TWO", channelName: "未命名頻道", mode: "skip-ocr" }
   ]);
+  assert.deepEqual(Core.CHANNEL_RULE_MODES, [
+    "disabled",
+    "skip-ocr",
+    "force-ocr",
+    "force-enable-no-ocr",
+    "force-disable-no-ocr"
+  ]);
+});
+
+test("指定頻道規則最多保留 10 條", () => {
+  const channelRules = Array.from({ length: 12 }, (_, index) => ({
+    channelId: `UC-${index}`,
+    channelName: `頻道 ${index}`,
+    mode: "skip-ocr"
+  }));
+  const settings = Core.mergeSettings({ channelRules });
+  assert.equal(Core.MAX_CHANNEL_RULES, 10);
+  assert.equal(settings.channelRules.length, 10);
+  assert.equal(settings.channelRules.at(-1).channelId, "UC-9");
 });
 
 test("指定頻道會使用穩定的 channelId 比對規則", () => {
@@ -122,6 +141,21 @@ test("強制 OCR 會覆寫簡體字幕略過條件", () => {
     skipEmbeddedDetectionForSimplifiedOnly: true,
     channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" }]
   }), "");
+});
+
+test("強置字幕開關模式一律略過 OCR 辨識", () => {
+  const playerData = {
+    channelId: "UC-ONE",
+    captionTracks: [{ languageCode: "zh-TW", name: "中文（繁體）" }]
+  };
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-no-ocr" }]
+  }), "channel-force-enable-no-ocr");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-disable-no-ocr" }]
+  }), "channel-force-disable-no-ocr");
 });
 
 test("沒有任何 CC 字幕時不啟動 OCR，強制 OCR 也不能覆寫", () => {
@@ -321,6 +355,10 @@ test("字幕監聽會依背景、CC、OCR 與總開關自動停止", () => {
   assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, documentHidden: true }), false);
   assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, hasCaptionTracks: false }), false);
   assert.equal(Core.shouldMonitorCaptions({ ...localMode, enabled: false }, active), false);
+  assert.equal(Core.shouldMonitorCaptions(localMode, {
+    ...active,
+    planType: "channel-force-disable"
+  }), false);
 });
 
 test("香港常見口語可轉為普通話且較長詞優先", () => {
@@ -347,6 +385,17 @@ test("自訂替換會排除空白、重複及無效規則", () => {
     { from: "", to: "D" },
     { from: "E", to: "E" }
   ]), [{ from: "A", to: "B", enabled: true }]);
+});
+
+test("自訂詞彙替換最多保留 40 條", () => {
+  const customReplacements = Array.from({ length: 45 }, (_, index) => ({
+    from: `原詞 ${index}`,
+    to: `新詞 ${index}`
+  }));
+  const settings = Core.mergeSettings({ customReplacements });
+  assert.equal(Core.MAX_CUSTOM_REPLACEMENTS, 40);
+  assert.equal(settings.customReplacements.length, 40);
+  assert.equal(settings.customReplacements.at(-1).from, "原詞 39");
 });
 
 test("舊版優先順序會移除三個自動產生的中文規則", () => {
@@ -415,6 +464,23 @@ test("片頭一個位置離群樣本不會否決後續三段一致的內嵌字�
   assert.equal(detected.decision, "detected");
   assert.equal(detected.consistentPositiveCount, 3);
   assert.ok(detected.centerSpread <= 0.24);
+});
+
+test("畫面中央固定章節標題不會被誤判為底部內嵌字幕", () => {
+  const samples = Array.from({ length: 6 }, (_, index) => ({
+    score: 1,
+    hash: `chapter-title-${index}`,
+    bandCenter: 0.16
+  }));
+
+  const firstThree = Core.evaluateEmbeddedSamples(samples.slice(0, 3));
+  assert.equal(firstThree.decision, "pending");
+  assert.equal(firstThree.positiveCount, 0);
+
+  const completed = Core.evaluateEmbeddedSamples(samples);
+  assert.equal(completed.decision, "not-detected");
+  assert.equal(completed.consistentPositiveCount, 0);
+  assert.equal(Core.MIN_EMBEDDED_SUBTITLE_BAND_CENTER, 0.45);
 });
 
 test("六段樣本沒有三個位置一致時仍不判定內嵌字幕", () => {

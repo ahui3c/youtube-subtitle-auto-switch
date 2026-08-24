@@ -11,6 +11,9 @@ let observeCount = 0;
 let disconnectCount = 0;
 let localStatusWrites = 0;
 let runtimeMessageListener;
+const appliedPlans = [];
+let enableCaptionEvents = 0;
+let disableCaptionEvents = 0;
 
 class FakeCustomEvent {
   constructor(type, init = {}) {
@@ -98,6 +101,10 @@ globalThis.chrome = {
   }
 };
 
+document.addEventListener("ytlang:apply-plan", (event) => appliedPlans.push(event.detail));
+document.addEventListener("ytlang:enable-captions", () => { enableCaptionEvents += 1; });
+document.addEventListener("ytlang:disable-captions", () => { disableCaptionEvents += 1; });
+
 await import("../src/content.js");
 
 function emit(type, detail) {
@@ -108,9 +115,8 @@ function settle() {
   return new Promise((resolve) => setTimeout(resolve, 15));
 }
 
-test("本機轉換、字幕監聽生命週期與狀態去重可共同運作", async () => {
-  await settle();
-  const player = {
+function testPlayerData() {
+  return {
     videoId: "video-1",
     title: "測試影片",
     channelId: "channel-1",
@@ -124,6 +130,11 @@ test("本機轉換、字幕監聽生命週期與狀態去重可共同運作", as
     }],
     translationLanguages: [{ languageCode: "zh-Hant", name: "中文（繁體）" }]
   };
+}
+
+test("本機轉換、字幕監聽生命週期與狀態去重可共同運作", async () => {
+  await settle();
+  const player = testPlayerData();
 
   emit("ytlang:player-data", player);
   mutationCallback?.([]);
@@ -147,4 +158,80 @@ test("本機轉換、字幕監聽生命週期與狀態去重可共同運作", as
   assert.ok(disconnectCount > disconnectBeforeNoCc);
 
   assert.equal(typeof runtimeMessageListener, "function");
+});
+
+test("強置字幕開關不啟動 OCR 且不改變原有字幕計畫", async () => {
+  await settle();
+  emit("ytlang:player-data", testPlayerData());
+
+  const plansBeforeEnable = appliedPlans.length;
+  let enableResponse;
+  runtimeMessageListener({
+    type: "ytlang:settings-updated",
+    settings: {
+      ...storedSettings,
+      embeddedDetection: true,
+      channelRules: [{
+        channelId: "channel-1",
+        channelName: "測試頻道",
+        mode: "force-enable-no-ocr"
+      }]
+    }
+  }, {}, (response) => { enableResponse = response; });
+
+  assert.equal(enableResponse.status.captureArmed, false);
+  assert.equal(enableResponse.status.detectionSkipReason, "channel-force-enable-no-ocr");
+  assert.equal(appliedPlans.length, plansBeforeEnable + 1);
+  assert.equal(appliedPlans.at(-1).type, "opencc");
+  assert.equal(enableCaptionEvents, 0);
+
+  const enablesBeforeFallback = enableCaptionEvents;
+  emit("ytlang:player-data", {
+    ...testPlayerData(),
+    captionTracks: [],
+    hasCaptionControl: true
+  });
+  assert.equal(enableCaptionEvents, enablesBeforeFallback + 1);
+
+  const plansBeforeDisable = appliedPlans.length;
+  const disablesBefore = disableCaptionEvents;
+  const disconnectsBefore = disconnectCount;
+  let disableResponse;
+  runtimeMessageListener({
+    type: "ytlang:settings-updated",
+    settings: {
+      ...storedSettings,
+      embeddedDetection: true,
+      channelRules: [{
+        channelId: "channel-1",
+        channelName: "測試頻道",
+        mode: "force-disable-no-ocr"
+      }]
+    }
+  }, {}, (response) => { disableResponse = response; });
+
+  assert.equal(disableResponse.status.captureArmed, false);
+  assert.equal(disableResponse.status.detectionSkipReason, "channel-force-disable-no-ocr");
+  assert.equal(disableResponse.status.planType, "channel-force-disable");
+  assert.equal(appliedPlans.length, plansBeforeDisable);
+  assert.equal(disableCaptionEvents, disablesBefore + 1);
+  assert.ok(disconnectCount > disconnectsBefore);
+
+  const disablesBeforeMasterOff = disableCaptionEvents;
+  let masterOffResponse;
+  runtimeMessageListener({
+    type: "ytlang:settings-updated",
+    settings: {
+      ...storedSettings,
+      enabled: false,
+      embeddedDetection: true,
+      channelRules: [{
+        channelId: "channel-1",
+        channelName: "測試頻道",
+        mode: "force-disable-no-ocr"
+      }]
+    }
+  }, {}, (response) => { masterOffResponse = response; });
+  assert.equal(masterOffResponse.status.planType, "disabled");
+  assert.equal(disableCaptionEvents, disablesBeforeMasterOff);
 });

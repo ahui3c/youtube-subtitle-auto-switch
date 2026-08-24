@@ -77,3 +77,19 @@ test("YouTube 翻譯描述包含語言代碼及顯示名稱", () => {
   });
   assert.equal(captionsEnabled, true);
 });
+
+test("字幕開關事件只在需要時切換 YouTube CC", () => {
+  captionsEnabled = false;
+  document.dispatchEvent(new CustomEvent("ytlang:enable-captions", {
+    detail: { videoId: "test" }
+  }));
+  assert.equal(captionsEnabled, true);
+
+  document.dispatchEvent(new CustomEvent("ytlang:enable-captions", {
+    detail: { videoId: "test" }
+  }));
+  assert.equal(captionsEnabled, true);
+
+  document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
+  assert.equal(captionsEnabled, false);
+});
