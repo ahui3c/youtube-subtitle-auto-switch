@@ -85,28 +85,27 @@ test("指定頻道規則會保留頻道識別並排除重複或無效資料", ()
     { channelId: "UC-TWO", channelName: "", mode: "unknown" },
     { channelId: "", channelName: "沒有 ID", mode: "skip-ocr" }
   ]), [
-    { channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" },
-    { channelId: "UC-TWO", channelName: "未命名頻道", mode: "skip-ocr" }
+    { channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-no-ocr" },
+    { channelId: "UC-TWO", channelName: "未命名頻道", mode: "force-enable-no-ocr" }
   ]);
   assert.deepEqual(Core.CHANNEL_RULE_MODES, [
     "disabled",
-    "skip-ocr",
-    "force-ocr",
     "force-enable-no-ocr",
-    "force-disable-no-ocr"
+    "force-enable-convert",
+    "force-enable-convert-hk"
   ]);
 });
 
-test("指定頻道規則最多保留 10 條", () => {
-  const channelRules = Array.from({ length: 12 }, (_, index) => ({
+test("指定頻道規則最多保留 50 條", () => {
+  const channelRules = Array.from({ length: 55 }, (_, index) => ({
     channelId: `UC-${index}`,
     channelName: `頻道 ${index}`,
-    mode: "skip-ocr"
+    mode: "force-enable-no-ocr"
   }));
   const settings = Core.mergeSettings({ channelRules });
-  assert.equal(Core.MAX_CHANNEL_RULES, 10);
-  assert.equal(settings.channelRules.length, 10);
-  assert.equal(settings.channelRules.at(-1).channelId, "UC-9");
+  assert.equal(Core.MAX_CHANNEL_RULES, 50);
+  assert.equal(settings.channelRules.length, 50);
+  assert.equal(settings.channelRules.at(-1).channelId, "UC-49");
 });
 
 test("指定頻道會使用穩定的 channelId 比對規則", () => {
@@ -116,7 +115,7 @@ test("指定頻道會使用穩定的 channelId 比對規則", () => {
   assert.equal(rule.mode, "disabled");
 });
 
-test("指定頻道可停用全部或略過 OCR", () => {
+test("指定頻道可停用全部或以三種強制模式略過 OCR", () => {
   const playerData = {
     channelId: "UC-ONE",
     captionTracks: [{ languageCode: "zh-TW", name: "中文（繁體）" }]
@@ -127,45 +126,22 @@ test("指定頻道可停用全部或略過 OCR", () => {
   }), "channel-disabled");
   assert.equal(Core.embeddedDetectionSkipReason(playerData, {
     embeddedDetection: true,
-    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "skip-ocr" }]
-  }), "channel-skip-ocr");
-});
-
-test("強制 OCR 會覆寫簡體字幕略過條件", () => {
-  const playerData = {
-    channelId: "UC-ONE",
-    captionTracks: [{ languageCode: "zh-CN", name: "中文（簡體）" }]
-  };
-  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
-    embeddedDetection: true,
-    skipEmbeddedDetectionForSimplifiedOnly: true,
-    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" }]
-  }), "");
-});
-
-test("強置字幕開關模式一律略過 OCR 辨識", () => {
-  const playerData = {
-    channelId: "UC-ONE",
-    captionTracks: [{ languageCode: "zh-TW", name: "中文（繁體）" }]
-  };
-  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
-    embeddedDetection: true,
     channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-no-ocr" }]
   }), "channel-force-enable-no-ocr");
   assert.equal(Core.embeddedDetectionSkipReason(playerData, {
     embeddedDetection: true,
-    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-disable-no-ocr" }]
-  }), "channel-force-disable-no-ocr");
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-convert" }]
+  }), "channel-force-enable-convert-no-ocr");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-convert-hk" }]
+  }), "channel-force-enable-convert-hk-no-ocr");
 });
 
-test("沒有任何 CC 字幕時不啟動 OCR，強制 OCR 也不能覆寫", () => {
+test("沒有任何 CC 字幕時不啟動一般 OCR", () => {
   const playerData = { channelId: "UC-ONE", captionTracks: [] };
   assert.equal(Core.embeddedDetectionSkipReason(playerData, {
     embeddedDetection: true
-  }), "no-caption-tracks");
-  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
-    embeddedDetection: true,
-    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-ocr" }]
   }), "no-caption-tracks");
 });
 
@@ -297,7 +273,7 @@ test("設定合併會排除不存在及重複的停用規則", () => {
 
 test("舊設定只遷移一次到新的字幕預設", () => {
   const migrated = Core.migrateStoredSettings({ simplifiedMode: "opencc", disabledRules: [] });
-  assert.equal(migrated.settingsVersion, 5);
+  assert.equal(migrated.settingsVersion, 7);
   assert.equal(migrated.simplifiedMode, "youtube");
   assert.deepEqual(migrated.disabledRules, ["en-manual", "en-auto", "other"]);
 
@@ -321,6 +297,7 @@ test("地區用語只有在本機轉換模式啟用", () => {
   assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "youtube" }), false);
   assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "opencc" }), true);
   assert.equal(Core.isLocalTextConversionEnabled({ enabled: false, simplifiedMode: "opencc" }), false);
+  assert.equal(Core.isLocalTextConversionEnabled({ enabled: true, simplifiedMode: "youtube" }, "force-enable-convert"), true);
 });
 
 test("自訂詞彙替換只有在本機轉換模式啟用", () => {
@@ -339,6 +316,23 @@ test("自訂詞彙替換只有在本機轉換模式啟用", () => {
     simplifiedMode: "opencc",
     customReplacementsEnabled: false
   }), false);
+  assert.equal(Core.shouldApplyCustomReplacements({
+    enabled: true,
+    simplifiedMode: "youtube",
+    customReplacementsEnabled: true
+  }, "force-enable-convert"), true);
+});
+
+test("粵語轉換可由全域設定或指定頻道規則啟用", () => {
+  const youtubeMode = { enabled: true, simplifiedMode: "youtube", hongKongColloquialEnabled: false };
+  assert.equal(Core.shouldApplyHongKongConversion(youtubeMode), false);
+  assert.equal(Core.shouldApplyHongKongConversion(youtubeMode, "force-enable-convert"), false);
+  assert.equal(Core.shouldApplyHongKongConversion(youtubeMode, "force-enable-convert-hk"), true);
+  assert.equal(Core.shouldApplyHongKongConversion({
+    ...youtubeMode,
+    simplifiedMode: "opencc",
+    hongKongColloquialEnabled: true
+  }), true);
 });
 
 test("字幕監聽會依背景、CC、OCR 與總開關自動停止", () => {
@@ -355,10 +349,12 @@ test("字幕監聽會依背景、CC、OCR 與總開關自動停止", () => {
   assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, documentHidden: true }), false);
   assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, hasCaptionTracks: false }), false);
   assert.equal(Core.shouldMonitorCaptions({ ...localMode, enabled: false }, active), false);
-  assert.equal(Core.shouldMonitorCaptions(localMode, {
+  assert.equal(Core.shouldMonitorCaptions(youtubeMode, {
     ...active,
-    planType: "channel-force-disable"
-  }), false);
+    channelRuleMode: "force-enable-convert",
+    detectionComplete: true
+  }), true);
+  assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, planType: "channel-disabled" }), false);
 });
 
 test("香港常見口語可轉為普通話且較長詞優先", () => {
@@ -387,15 +383,68 @@ test("自訂替換會排除空白、重複及無效規則", () => {
   ]), [{ from: "A", to: "B", enabled: true }]);
 });
 
-test("自訂詞彙替換最多保留 40 條", () => {
-  const customReplacements = Array.from({ length: 45 }, (_, index) => ({
+test("自訂詞彙替換最多保留 100 條", () => {
+  const customReplacements = Array.from({ length: 105 }, (_, index) => ({
     from: `原詞 ${index}`,
     to: `新詞 ${index}`
   }));
   const settings = Core.mergeSettings({ customReplacements });
-  assert.equal(Core.MAX_CUSTOM_REPLACEMENTS, 40);
-  assert.equal(settings.customReplacements.length, 40);
-  assert.equal(settings.customReplacements.at(-1).from, "原詞 39");
+  assert.equal(Core.MAX_CUSTOM_REPLACEMENTS, 100);
+  assert.equal(settings.customReplacements.length, 100);
+  assert.equal(settings.customReplacements.at(-1).from, "原詞 99");
+});
+
+test("沒有有效 VIP 授權時不套用付費設定但保留免費功能", () => {
+  const settings = Core.enforceVipSettings({
+    embeddedDetection: true,
+    simplifiedMode: "opencc",
+    taiwanTermsEnabled: true,
+    hongKongColloquialEnabled: true,
+    customReplacementsEnabled: true,
+    customReplacements: [{ from: "軟件", to: "軟體", enabled: true }],
+    channelRules: [{ channelId: "UC-VIP", channelName: "VIP 頻道", mode: "force-enable-convert" }]
+  }, false);
+  assert.equal(settings.embeddedDetection, true);
+  assert.equal(settings.simplifiedMode, "opencc");
+  assert.equal(settings.taiwanTermsEnabled, false);
+  assert.equal(settings.hongKongColloquialEnabled, false);
+  assert.equal(settings.customReplacementsEnabled, false);
+  assert.deepEqual(settings.customReplacements, []);
+  assert.deepEqual(settings.channelRules, []);
+});
+
+test("有效 VIP 授權會保留所有付費設定", () => {
+  const source = {
+    taiwanTermsEnabled: true,
+    customReplacements: [{ from: "軟件", to: "軟體", enabled: true }],
+    channelRules: [{ channelId: "UC-VIP", channelName: "VIP 頻道", mode: "force-enable-convert" }]
+  };
+  const settings = Core.enforceVipSettings(source, true);
+  assert.equal(settings.taiwanTermsEnabled, true);
+  assert.equal(settings.customReplacements.length, 1);
+  assert.equal(settings.channelRules.length, 1);
+});
+
+test("首次取得 VIP 時套用台灣與自訂詞彙預設並維持香港口語關閉", () => {
+  const initialized = Core.applyVipActivationDefaults({
+    taiwanTermsEnabled: false,
+    hongKongColloquialEnabled: true,
+    customReplacementsEnabled: false
+  });
+  assert.equal(initialized.taiwanTermsEnabled, true);
+  assert.equal(initialized.customReplacementsEnabled, true);
+  assert.equal(initialized.hongKongColloquialEnabled, false);
+  assert.equal(initialized.vipDefaultsVersion, 1);
+
+  const customized = Core.applyVipActivationDefaults({
+    vipDefaultsVersion: 1,
+    taiwanTermsEnabled: false,
+    hongKongColloquialEnabled: true,
+    customReplacementsEnabled: false
+  });
+  assert.equal(customized.taiwanTermsEnabled, false);
+  assert.equal(customized.customReplacementsEnabled, false);
+  assert.equal(customized.hongKongColloquialEnabled, true);
 });
 
 test("舊版優先順序會移除三個自動產生的中文規則", () => {

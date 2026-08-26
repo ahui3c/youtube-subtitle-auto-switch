@@ -73,6 +73,41 @@
       <p id="simplified-hint" class="hint">本機轉換不會送出字幕文字，並保留原始時間軸。</p>
     </section>
 
+    <section id="vip-account" class="vip-account" aria-labelledby="vip-account-title">
+      <div class="vip-account-copy">
+        <p>VIP 帳號</p>
+        <strong id="vip-account-title">尚未登入</strong>
+        <small id="vip-account-detail">登入購買時使用的 Google 帳號以驗證 VIP</small>
+      </div>
+      <div class="vip-account-actions">
+        <button id="vip-login" type="button">使用 Google 登入</button>
+        <button id="vip-manage" class="vip-link" type="button">購買／訂單</button>
+        <button id="vip-logout" class="vip-link" type="button" hidden>登出</button>
+      </div>
+    </section>
+
+    <section id="cloud-sync-section" class="section compact cloud-sync-section" aria-labelledby="cloud-sync-title">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">選用 · 帳號資料同步</p>
+          <div class="feature-title-row">
+            <h2 id="cloud-sync-title">VIP 雲端同步</h2>
+            <span class="vip-badge">VIP 功能</span>
+          </div>
+        </div>
+        <label class="inline-switch"><input id="cloud-sync-enabled" type="checkbox" aria-label="啟用 VIP 雲端同步"><span aria-hidden="true"></span></label>
+      </div>
+      <p id="cloud-sync-status" class="hint" role="status">預設只儲存在本機，尚未啟用雲端同步。</p>
+      <div id="cloud-sync-actions" class="cloud-sync-actions">
+        <button id="cloud-sync-now" class="secondary" type="button">立即同步</button>
+        <button id="cloud-sync-use-local" class="secondary" type="button" hidden>保留本機資料</button>
+        <button id="cloud-sync-use-cloud" class="secondary" type="button" hidden>改用網站資料</button>
+        <button id="cloud-sync-manage" class="secondary" type="button">網站維護</button>
+      </div>
+      <p class="vip-lock-hint" role="status">登入並購買 VIP 後才可選擇啟用同步。</p>
+      <p class="hint">僅同步自訂詞彙與指定頻道規則。離線時仍使用本機資料，恢復連線後再同步。</p>
+    </section>
+
     <section id="terms-section" class="section compact terms-section" aria-labelledby="terms-title">
       <div class="section-heading">
         <div>
@@ -92,6 +127,7 @@
         <label class="inline-switch"><input id="hongKongColloquialEnabled" type="checkbox" aria-label="啟用香港口語轉普通話"><span aria-hidden="true"></span></label>
       </div>
       <p id="terms-lock-hint" class="lock-hint" role="status">請先在上方選擇「本機轉換」才能使用。</p>
+      <p class="vip-lock-hint" role="status">登入並購買 VIP 後即可使用地區用語轉換。</p>
       <p class="hint">處理順序：香港口語 → 台灣用語 → 自訂替換。語境不同時仍可能需要自行修正。</p>
     </section>
 
@@ -107,6 +143,7 @@
         <label class="inline-switch"><input id="customReplacementsEnabled" type="checkbox" aria-label="啟用自訂詞彙替換"><span aria-hidden="true"></span></label>
       </div>
       <p class="lock-hint" role="status">請先在上方選擇「本機轉換」才能使用。</p>
+      <p class="vip-lock-hint" role="status">登入並購買 VIP 後即可使用自訂詞彙替換。</p>
       <form id="replacement-form" class="replacement-form">
         <input id="replacement-from" maxlength="80" placeholder="原詞，例如：出租車" aria-label="要取代的原詞">
         <span aria-hidden="true">→</span>
@@ -115,7 +152,7 @@
       </form>
       <div id="replacement-error" class="form-error" role="alert"></div>
       <ol id="replacement-list" class="replacement-list"></ol>
-      <p class="hint">較長的原詞會優先匹配；最多 40 條。每條規則都能停用、排序或刪除。</p>
+      <p class="hint">較長的原詞會優先匹配；最多 100 條。每條規則都能停用、排序或刪除。</p>
     </section>
 
     <section class="section compact channel-rules-section" aria-labelledby="channel-rules-title">
@@ -136,8 +173,9 @@
         <button id="add-current-channel" class="secondary" type="button">將目前頻道加入規則</button>
       </div>
       <ol id="channel-rule-list" class="channel-rule-list"></ol>
-      <p class="hint">最多可設定 10 個頻道。</p>
-      <p class="hint">強制 OCR 字幕辨識只會覆寫其他略過條件；全域「圖形 OCR 偵測內嵌字幕」關閉時仍不會啟動。兩種強置字幕開關模式都不進行 OCR。</p>
+      <p class="hint">最多可設定 50 個頻道。</p>
+      <p class="vip-lock-hint" role="status">登入並購買 VIP 後即可使用指定頻道規則。</p>
+      <p class="hint">強制模式一律開啟 CC 字幕且不進行 OCR；簡繁轉換模式會處理任何語言字幕，並依已開啟的設定套用台灣用語及自訂詞彙。</p>
     </section>
 
     <footer>

@@ -9,9 +9,45 @@ let lastIconPath;
 let lastTitle;
 let lastBadgeText;
 let injectedScripts = [];
+let openedTabUrl = "";
+let localStorage = {};
+let syncStorage = { settings: { enabled: true } };
+let googleReady = false;
+let cloudOffline = false;
+let entitlementResult = null;
+let cloudRemote = { revision: 0, updatedAt: "", customReplacements: [], channelRules: [] };
+
+globalThis.fetch = async (url, options = {}) => {
+  if (String(url).endsWith("/api/auth/status")) {
+    return { ok: true, async json() { return { googleReady }; } };
+  }
+  if (String(url).endsWith("/api/extension/entitlement")) {
+    if (String(options.method || "GET").toUpperCase() === "POST") return { ok: true, async json() { return { ok: true }; } };
+    if (!entitlementResult) return { ok: false, status: 401, async json() { return {}; } };
+    return { ok: true, status: 200, async json() { return entitlementResult; } };
+  }
+  if (String(url).endsWith("/api/extension/sync")) {
+    if (cloudOffline) throw new Error("offline");
+    const method = String(options.method || "GET").toUpperCase();
+    if (method === "GET") return { ok: true, status: 200, async json() { return structuredClone(cloudRemote); } };
+    const body = JSON.parse(options.body || "{}");
+    if (body.baseRevision !== cloudRemote.revision) {
+      return { ok: false, status: 409, async json() { return { message: "conflict", current: structuredClone(cloudRemote) }; } };
+    }
+    cloudRemote = {
+      revision: cloudRemote.revision + 1,
+      updatedAt: new Date().toISOString(),
+      customReplacements: body.customReplacements,
+      channelRules: body.channelRules
+    };
+    return { ok: true, status: 200, async json() { return structuredClone(cloudRemote); } };
+  }
+  throw new Error(`unexpected fetch: ${url}`);
+};
 
 globalThis.chrome = {
   runtime: {
+    lastError: undefined,
     onInstalled: { addListener() {} },
     onStartup: { addListener() {} },
     onMessage: {
@@ -22,8 +58,26 @@ globalThis.chrome = {
   },
   storage: {
     sync: {
-      async get() {
-        return { settings: { enabled: true } };
+      get(keys, callback) {
+        const value = structuredClone(syncStorage);
+        callback?.(value);
+        return Promise.resolve(value);
+      },
+      async set(value) {
+        Object.assign(syncStorage, structuredClone(value));
+      }
+    },
+    local: {
+      get(keys, callback) {
+        const names = Array.isArray(keys) ? keys : [keys];
+        const result = Object.fromEntries(names.filter((key) => key in localStorage).map((key) => [key, localStorage[key]]));
+        callback(result);
+      },
+      async set(value) {
+        Object.assign(localStorage, value);
+      },
+      async remove(key) {
+        delete localStorage[key];
       }
     },
     onChanged: {
@@ -52,15 +106,29 @@ globalThis.chrome = {
       return details.func ? [{ result: Boolean(globalThis.OpenCC?.Converter) }] : [];
     }
   },
+  identity: {
+    getRedirectURL(path) {
+      return `https://extension-id.chromiumapp.org/${path}`;
+    },
+    launchWebAuthFlow() {
+      throw new Error("這個測試不應啟動 OAuth 視窗");
+    }
+  },
   tabs: {
     async query() {
       return [{ id: activeTabId }];
+    },
+    async sendMessage() {
+      return { ok: true };
     },
     async captureVisibleTab(windowId, options) {
       captureCalls += 1;
       assert.equal(windowId, 3);
       assert.deepEqual(options, { format: "png" });
       return "data:image/png;base64,test";
+    },
+    async create({ url }) {
+      openedTabUrl = url;
     }
   }
 };
@@ -132,4 +200,84 @@ test("OpenCC 按需注入後會在同一隔離環境驗證載入結果", async (
     files: ["vendor/opencc.js"]
   });
   assert.equal(typeof injectedScripts[1].func, "function");
+});
+
+test("Google OAuth 尚未設定時會開啟會員中心並回傳明確訊息", async () => {
+  googleReady = false;
+  openedTabUrl = "";
+  localStorage = {};
+  const response = await sendMessage({ type: "ytlang:vip-login" });
+  assert.equal(response.ok, false);
+  assert.match(response.message, /Google 登入服務尚未完成設定/);
+  assert.equal(openedTabUrl, "https://myapp.ahui3c.com/account?source=extension&error=google_not_configured");
+  assert.match(localStorage.vipAuthNotice.message, /已開啟會員中心/);
+});
+
+test("首次取得 VIP 會套用三項指定預設值", async () => {
+  localStorage = {
+    vipAccessToken: "token",
+    vipEntitlement: { authenticated: true, vipActive: false, email: "vip@example.com", checkedAt: "" }
+  };
+  syncStorage = { settings: { enabled: true, taiwanTermsEnabled: false, hongKongColloquialEnabled: true, customReplacementsEnabled: false } };
+  entitlementResult = { authenticated: true, vipActive: true, email: "vip@example.com", checkedAt: new Date().toISOString() };
+  const response = await sendMessage({ type: "ytlang:vip-get-status", force: true });
+  assert.equal(response.entitlement.vipActive, true);
+  assert.equal(syncStorage.settings.taiwanTermsEnabled, true);
+  assert.equal(syncStorage.settings.customReplacementsEnabled, true);
+  assert.equal(syncStorage.settings.hongKongColloquialEnabled, false);
+  assert.equal(syncStorage.settings.vipDefaultsVersion, 1);
+});
+
+test("雲端同步預設關閉，啟用後會安全上傳本機資料", async () => {
+  localStorage = {
+    vipAccessToken: "token",
+    vipEntitlement: { authenticated: true, vipActive: true, email: "vip@example.com" },
+    customReplacements: [{ from: "軟件", to: "軟體", enabled: true }],
+    channelRules: [{ channelId: "UC-1", channelName: "測試頻道", mode: "force-enable-no-ocr" }]
+  };
+  cloudRemote = { revision: 0, updatedAt: "", customReplacements: [], channelRules: [] };
+  cloudOffline = false;
+  const before = await sendMessage({ type: "ytlang:cloud-sync-status" });
+  assert.equal(before.state.enabled, false);
+  const enabled = await sendMessage({ type: "ytlang:cloud-sync-enable", enabled: true });
+  assert.equal(enabled.state.enabled, true);
+  assert.equal(enabled.state.status, "synced");
+  assert.equal(enabled.state.pending, false);
+  assert.equal(cloudRemote.revision, 1);
+  assert.deepEqual(cloudRemote.customReplacements, localStorage.customReplacements);
+});
+
+test("離線時保留待同步狀態且不影響本機資料", async () => {
+  localStorage.cloudSyncState = {
+    enabled: true, revision: 1, pending: false, conflict: false,
+    status: "synced", accountEmail: "vip@example.com"
+  };
+  cloudOffline = true;
+  const response = await sendMessage({ type: "ytlang:cloud-sync-local-changed" });
+  assert.equal(response.state.status, "offline");
+  assert.equal(response.state.pending, true);
+  assert.deepEqual(response.data.customReplacements, localStorage.customReplacements);
+  cloudOffline = false;
+});
+
+test("本機與網站同時修改時不會靜默覆蓋並可選擇網站版本", async () => {
+  localStorage.cloudSyncState = {
+    enabled: true, revision: 1, pending: false, conflict: false,
+    status: "synced", accountEmail: "vip@example.com"
+  };
+  localStorage.customReplacements = [{ from: "本機", to: "本機資料", enabled: true }];
+  cloudRemote = {
+    revision: 2,
+    updatedAt: new Date().toISOString(),
+    customReplacements: [{ from: "網站", to: "網站資料", enabled: true }],
+    channelRules: []
+  };
+  const conflict = await sendMessage({ type: "ytlang:cloud-sync-local-changed" });
+  assert.equal(conflict.state.conflict, true);
+  assert.deepEqual(localStorage.customReplacements, [{ from: "本機", to: "本機資料", enabled: true }]);
+
+  const resolved = await sendMessage({ type: "ytlang:cloud-sync-now", mode: "cloud" });
+  assert.equal(resolved.state.conflict, false);
+  assert.equal(resolved.state.revision, 2);
+  assert.deepEqual(localStorage.customReplacements, cloudRemote.customReplacements);
 });

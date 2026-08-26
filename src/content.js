@@ -5,6 +5,7 @@
   if (!Core) return;
 
   let settings = Core.mergeSettings();
+  let vipActive = false;
   let playerData = null;
   let activePlan = null;
   let applyAttempts = 0;
@@ -75,19 +76,24 @@
   }
 
   async function loadSettings() {
-    const [synced, local] = await Promise.all([
+    const [synced, local, vipResponse] = await Promise.all([
       storageGet("sync", "settings"),
-      storageGet("local", ["customReplacements", "channelRules"])
+      storageGet("local", ["customReplacements", "channelRules", "vipEntitlement"]),
+      Promise.resolve(chrome.runtime.sendMessage({ type: "ytlang:vip-get-status" })).catch(() => null)
     ]);
-    settings = Core.migrateStoredSettings({
+    const storedSettings = Core.migrateStoredSettings({
       ...synced.settings,
       customReplacements: local.customReplacements || synced.settings?.customReplacements,
       channelRules: local.channelRules || synced.settings?.channelRules
     });
-    if (synced.settings?.settingsVersion !== settings.settingsVersion
+    vipActive = vipResponse?.entitlement
+      ? vipResponse.entitlement.vipActive === true
+      : local.vipEntitlement?.vipActive === true;
+    settings = Core.enforceVipSettings(storedSettings, vipActive);
+    if (synced.settings?.settingsVersion !== storedSettings.settingsVersion
       || synced.settings?.customReplacements
       || synced.settings?.channelRules) {
-      const { customReplacements, channelRules, ...syncSettings } = settings;
+      const { customReplacements, channelRules, ...syncSettings } = storedSettings;
       await Promise.all([
         chrome.storage.sync.set({ settings: syncSettings }),
         chrome.storage.local.set({ customReplacements, channelRules })
@@ -158,14 +164,7 @@
       saveStatus();
       return;
     }
-    if (settings.enabled && channelRule?.mode === "force-disable-no-ocr") {
-      activePlan = { type: "channel-force-disable", reason: "channel-rule-force-disable" };
-      syncCaptionMonitoring();
-      saveStatus();
-      document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
-      return;
-    }
-    const forceEnable = settings.enabled && channelRule?.mode === "force-enable-no-ocr";
+    const forceEnable = settings.enabled && Core.channelForcesCaptionEnable(channelRule?.mode);
     activePlan = Core.chooseCaptionPlan(playerData, settings);
     if (forceEnable && activePlan.type === "none") {
       activePlan = { type: "channel-force-enable", reason: "channel-rule-force-enable" };
@@ -244,8 +243,12 @@
   }
 
   function openccTarget() {
-    const localMode = Core.isLocalTextConversionEnabled(settings);
+    const channelRuleMode = Core.channelRuleFor(playerData, settings)?.mode || "";
+    const localMode = Core.isLocalTextConversionEnabled(settings, channelRuleMode);
     if (!localMode) return "";
+    if (Core.channelForcesLocalConversion(channelRuleMode)) {
+      return settings.taiwanTermsEnabled ? "twp" : "tw";
+    }
     if (activePlan?.type === "opencc") return settings.taiwanTermsEnabled ? "twp" : "tw";
     return settings.taiwanTermsEnabled ? "twp" : "";
   }
@@ -263,7 +266,7 @@
 
   function convertCaptionSegments() {
     if (!settings.enabled || !playerData?.videoId || activePlan?.type === "channel-disabled") return;
-    const localMode = Core.isLocalTextConversionEnabled(settings);
+    const channelRuleMode = Core.channelRuleFor(playerData, settings)?.mode || "";
     const target = openccTarget();
     if (target && !globalThis.OpenCC?.Converter) {
       ensureOpenCC().then((loaded) => {
@@ -281,11 +284,11 @@
     for (const segment of document.querySelectorAll(".ytp-caption-segment")) {
       const current = segment.textContent || "";
       if (processedSegments.get(segment) === current) continue;
-      let converted = localMode && settings.hongKongColloquialEnabled
+      let converted = Core.shouldApplyHongKongConversion(settings, channelRuleMode)
         ? Core.applyHongKongColloquial(current)
         : current;
       if (converter) converted = converter(converted);
-      if (Core.shouldApplyCustomReplacements(settings)) {
+      if (Core.shouldApplyCustomReplacements(settings, channelRuleMode)) {
         converted = Core.applyLiteralReplacements(converted, settings.customReplacements);
       }
       processedSegments.set(segment, converted);
@@ -495,6 +498,7 @@
       hasCaptionTracks: Boolean(playerData?.captionTracks?.length) || playerData?.hasCaptionControl === true,
       hasRenderedCaptionCue: playerData?.hasRenderedCaptionCue === true,
       planType: activePlan?.type,
+      channelRuleMode: Core.channelRuleFor(playerData, settings)?.mode || "",
       captureArmed,
       detectionComplete: detection.complete
     });
@@ -550,11 +554,21 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === "ytlang:settings-updated") {
-      settings = Core.mergeSettings(message.settings);
+      if (typeof message.vipActive === "boolean") vipActive = message.vipActive;
+      settings = Core.enforceVipSettings(message.settings, vipActive);
       resetForVideo();
       refreshCaptureState();
       selectAndApply();
       sendResponse({ ok: true, status: statusSnapshot() });
+      return false;
+    }
+    if (message?.type === "ytlang:vip-status-updated") {
+      vipActive = message.entitlement?.vipActive === true;
+      loadSettings().then(() => {
+        resetForVideo();
+        selectAndApply();
+      });
+      sendResponse({ ok: true });
       return false;
     }
     if (message?.type === "ytlang:get-status") {

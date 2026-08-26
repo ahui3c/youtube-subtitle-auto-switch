@@ -7,4 +7,6 @@ test("OpenCC 不會在預設 YouTube 分頁預先載入", async () => {
   const isolatedScript = manifest.content_scripts.find((entry) => entry.world !== "MAIN");
   assert.equal(isolatedScript.js.includes("vendor/opencc.js"), false);
   assert.equal(manifest.permissions.includes("scripting"), true);
+  assert.equal(manifest.permissions.includes("identity"), true);
+  assert.equal(manifest.host_permissions.includes("https://myapp.ahui3c.com/*"), true);
 });

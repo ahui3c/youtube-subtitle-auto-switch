@@ -10,17 +10,31 @@
     { id: "other", label: "其他可翻譯語言字幕", family: "other", automatic: null, action: "translate" }
   ]);
 
-  const SETTINGS_VERSION = 5;
+  const SETTINGS_VERSION = 7;
+  const VIP_DEFAULTS_VERSION = 1;
   const DEFAULT_DISABLED_RULES = Object.freeze(["en-manual", "en-auto", "other"]);
   const CHANNEL_RULE_MODES = Object.freeze([
     "disabled",
-    "skip-ocr",
-    "force-ocr",
     "force-enable-no-ocr",
-    "force-disable-no-ocr"
+    "force-enable-convert",
+    "force-enable-convert-hk"
   ]);
-  const MAX_CUSTOM_REPLACEMENTS = 40;
-  const MAX_CHANNEL_RULES = 10;
+  const LEGACY_CHANNEL_RULE_MODES = Object.freeze({
+    "skip-ocr": "force-enable-no-ocr",
+    "force-ocr": "force-enable-no-ocr",
+    "force-disable-no-ocr": "disabled"
+  });
+  const CHANNEL_FORCE_ENABLE_MODES = new Set([
+    "force-enable-no-ocr",
+    "force-enable-convert",
+    "force-enable-convert-hk"
+  ]);
+  const CHANNEL_FORCE_CONVERSION_MODES = new Set([
+    "force-enable-convert",
+    "force-enable-convert-hk"
+  ]);
+  const MAX_CUSTOM_REPLACEMENTS = 100;
+  const MAX_CHANNEL_RULES = 50;
   const MIN_EMBEDDED_SUBTITLE_BAND_CENTER = 0.45;
 
   // Curated conservative mappings only. Ambiguous single-character replacements
@@ -85,6 +99,7 @@
     customReplacementsEnabled: true,
     customReplacements: [],
     channelRules: [],
+    vipDefaultsVersion: 0,
     priority: RULES.map((rule) => rule.id),
     disabledRules: DEFAULT_DISABLED_RULES
   });
@@ -179,6 +194,31 @@
     });
   }
 
+  function enforceVipSettings(settings, vipActive) {
+    const normalized = mergeSettings(settings);
+    if (vipActive === true) return normalized;
+    return {
+      ...normalized,
+      taiwanTermsEnabled: false,
+      hongKongColloquialEnabled: false,
+      customReplacementsEnabled: false,
+      customReplacements: [],
+      channelRules: []
+    };
+  }
+
+  function applyVipActivationDefaults(settings) {
+    const normalized = mergeSettings(settings);
+    if (Number(normalized.vipDefaultsVersion || 0) >= VIP_DEFAULTS_VERSION) return normalized;
+    return mergeSettings({
+      ...normalized,
+      taiwanTermsEnabled: true,
+      hongKongColloquialEnabled: false,
+      customReplacementsEnabled: true,
+      vipDefaultsVersion: VIP_DEFAULTS_VERSION
+    });
+  }
+
   function normalizeReplacementRules(rules) {
     if (!Array.isArray(rules)) return [];
     const normalized = [];
@@ -202,7 +242,10 @@
       if (!channelId || seen.has(channelId)) continue;
       seen.add(channelId);
       const channelName = String(candidate?.channelName || "").trim().slice(0, 100) || "未命名頻道";
-      const mode = CHANNEL_RULE_MODES.includes(candidate?.mode) ? candidate.mode : "skip-ocr";
+      const candidateMode = String(candidate?.mode || "");
+      const mode = CHANNEL_RULE_MODES.includes(candidateMode)
+        ? candidateMode
+        : LEGACY_CHANNEL_RULE_MODES[candidateMode] || "force-enable-no-ocr";
       normalized.push({ channelId, channelName, mode });
     }
     return normalized;
@@ -213,6 +256,18 @@
     if (!channelId) return null;
     const settings = mergeSettings(rawSettings);
     return settings.channelRules.find((rule) => rule.channelId === channelId) || null;
+  }
+
+  function channelForcesCaptionEnable(mode) {
+    return CHANNEL_FORCE_ENABLE_MODES.has(String(mode || ""));
+  }
+
+  function channelForcesLocalConversion(mode) {
+    return CHANNEL_FORCE_CONVERSION_MODES.has(String(mode || ""));
+  }
+
+  function channelForcesHongKongConversion(mode) {
+    return String(mode || "") === "force-enable-convert-hk";
   }
 
   function applyLiteralReplacements(value, rules) {
@@ -234,12 +289,19 @@
     return applyLiteralReplacements(value, HONG_KONG_COLLOQUIAL_RULES);
   }
 
-  function isLocalTextConversionEnabled(settings) {
-    return settings?.enabled !== false && settings?.simplifiedMode === "opencc";
+  function isLocalTextConversionEnabled(settings, channelRuleMode = "") {
+    return settings?.enabled !== false
+      && (settings?.simplifiedMode === "opencc" || channelForcesLocalConversion(channelRuleMode));
   }
 
-  function shouldApplyCustomReplacements(settings) {
-    return isLocalTextConversionEnabled(settings) && settings?.customReplacementsEnabled !== false;
+  function shouldApplyCustomReplacements(settings, channelRuleMode = "") {
+    return isLocalTextConversionEnabled(settings, channelRuleMode)
+      && settings?.customReplacementsEnabled !== false;
+  }
+
+  function shouldApplyHongKongConversion(settings, channelRuleMode = "") {
+    return isLocalTextConversionEnabled(settings, channelRuleMode)
+      && (settings?.hongKongColloquialEnabled === true || channelForcesHongKongConversion(channelRuleMode));
   }
 
   function shouldMonitorCaptions(settings, state = {}) {
@@ -247,8 +309,8 @@
       || (!state.hasCaptionTracks && !state.hasRenderedCaptionCue)) {
       return false;
     }
-    if (state.planType === "channel-disabled" || state.planType === "channel-force-disable") return false;
-    const needsLocalConversion = isLocalTextConversionEnabled(settings);
+    if (state.planType === "channel-disabled") return false;
+    const needsLocalConversion = isLocalTextConversionEnabled(settings, state.channelRuleMode);
     const needsEmbeddedDetection = state.captureArmed === true && state.detectionComplete !== true;
     return needsLocalConversion || needsEmbeddedDetection;
   }
@@ -325,14 +387,13 @@
     const channelRule = settings.channelRules.find((rule) => rule.channelId === channelId);
     if (channelRule?.mode === "disabled") return "channel-disabled";
     if (channelRule?.mode === "force-enable-no-ocr") return "channel-force-enable-no-ocr";
-    if (channelRule?.mode === "force-disable-no-ocr") return "channel-force-disable-no-ocr";
+    if (channelRule?.mode === "force-enable-convert") return "channel-force-enable-convert-no-ocr";
+    if (channelRule?.mode === "force-enable-convert-hk") return "channel-force-enable-convert-hk-no-ocr";
     if (!settings.embeddedDetection) return "";
     const tracks = Array.isArray(playerData?.captionTracks) ? playerData.captionTracks : [];
     if (!tracks.length && playerData?.hasRenderedCaptionCue !== true && playerData?.hasCaptionControl !== true) {
       return "no-caption-tracks";
     }
-    if (channelRule?.mode === "skip-ocr") return "channel-skip-ocr";
-    if (channelRule?.mode === "force-ocr") return "";
     if (!settings.skipEmbeddedDetectionForSimplifiedOnly) return "";
     const families = new Set(tracks.map(familyOf));
     return families.has("simplified") && !families.has("traditional") ? "simplified-only" : "";
@@ -571,12 +632,18 @@
     familyOf,
     mergeSettings,
     migrateStoredSettings,
+    enforceVipSettings,
+    applyVipActivationDefaults,
     normalizeReplacementRules,
     normalizeChannelRules,
     applyLiteralReplacements,
     applyHongKongColloquial,
+    channelForcesCaptionEnable,
+    channelForcesLocalConversion,
+    channelForcesHongKongConversion,
     isLocalTextConversionEnabled,
     shouldApplyCustomReplacements,
+    shouldApplyHongKongConversion,
     shouldMonitorCaptions,
     findTraditionalTarget,
     chooseCaptionPlan,
