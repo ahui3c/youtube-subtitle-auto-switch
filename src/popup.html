@@ -71,6 +71,21 @@
         <label><input type="radio" name="simplifiedMode" value="youtube"><span>YouTube 翻譯</span></label>
       </div>
       <p id="simplified-hint" class="hint">本機轉換不會送出字幕文字，並保留原始時間軸。</p>
+      <fieldset class="conversion-scope">
+        <legend>中文轉換範圍</legend>
+        <label class="conversion-scope-option">
+          <input type="radio" name="chineseConversionScope" value="confirmed">
+          <span><strong>僅處理確認簡體字幕</strong><small>只將明確標示為簡體的字幕執行簡轉繁；「zh／中文」及明確繁體維持原字幕。</small></span>
+        </label>
+        <label class="conversion-scope-option">
+          <input type="radio" name="chineseConversionScope" value="unspecified">
+          <span><strong>未定義簡繁中文強制轉換</strong><small>「zh／中文」與明確簡體字幕執行簡轉繁；明確繁體維持原字幕。</small></span>
+        </label>
+        <label class="conversion-scope-option">
+          <input type="radio" name="chineseConversionScope" value="all">
+          <span><strong>全部中文強制轉換</strong><small>明確繁體、未定義及簡體字幕全部執行簡轉繁。</small></span>
+        </label>
+      </fieldset>
     </section>
 
     <section id="vip-account" class="vip-account" aria-labelledby="vip-account-title">

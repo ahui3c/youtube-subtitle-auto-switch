@@ -10,8 +10,9 @@
 
 ### 主要功能
 
-- 預設依序尋找中文繁體字幕、中文字幕及中文簡體字幕；英文與其他可翻譯語言預設停用。
-- 支援 YouTube 使用通用 `zh` 代碼、名稱只顯示「中文」的字幕軌。
+- 預設依序尋找中文繁體字幕、中文字幕、中文簡體字幕及粵語字幕；英文與其他可翻譯語言預設停用。
+- 明確辨識繁體 `zh-Hant`／`zh-Hant-TW`／`zh-TW`／`zh-HK`／`zh-MO`、簡體 `zh-Hans`／`zh-Hans-CN`／`zh-CN`／`zh-SG`、通用 `zh` 及粵語 `yue`／`yue-Hant` 字幕軌。
+- 通用 `zh` 預設也會執行簡轉繁；另可選擇「僅處理確認簡體字幕」，或改為「全部中文強制轉換」，連明確繁體字幕也送入所選的簡繁轉換流程。三種範圍為互斥選項。
 - 只有簡體字幕時，預設使用 YouTube 自動翻譯為繁體中文，也可改用 OpenCC 在本機轉換。
 - VIP 登入並完成購買後，選擇「本機轉換」可使用 OpenCC `twp` 將字幕中的中國用語轉為台灣慣用詞，例如「信息 → 資訊」與「保存 → 儲存」。
 - VIP「香港口語轉普通話」同樣只在本機轉換模式開放；內建保守的高頻口語規則，避免直接替換容易誤判的單字。
@@ -36,11 +37,12 @@
 1. 中文繁體字幕
 2. 中文字幕
 3. 中文簡體字幕
-4. 英文字幕（預設停用）
-5. 自動產生的英文字幕（預設停用）
-6. 其他可翻譯語言字幕（預設停用）
+4. 粵語字幕
+5. 英文字幕（預設停用）
+6. 自動產生的英文字幕（預設停用）
+7. 其他可翻譯語言字幕（預設停用）
 
-全自動簡轉繁預設使用 YouTube 翻譯。
+全自動簡轉繁預設使用 YouTube 翻譯，並預設選擇「未定義簡繁中文強制轉換」。
 
 地區用語只會在選擇「本機轉換」時執行。字幕文字的後處理順序為「香港口語 → 台灣用語 → 自訂替換」，因此自訂規則可以覆寫內建結果。香港口語轉換牽涉語境與粵語語法，預設關閉並標示為實驗性功能。
 
@@ -93,8 +95,9 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 
 ### Features
 
-- Prioritizes Traditional Chinese, generic Chinese, and Simplified Chinese captions; English and other translatable languages are disabled by default.
-- Recognizes generic `zh` tracks that YouTube may label simply as “Chinese.”
+- Prioritizes Traditional Chinese, generic Chinese, Simplified Chinese, and Cantonese captions; English and other translatable languages are disabled by default.
+- Recognizes `zh-Hant`/`zh-TW`, `zh-Hans`/`zh-CN`, generic `zh`, and `yue`/`yue-Hant` caption families.
+- Converts generic `zh` captions by default, with mutually exclusive modes for confirmed Simplified only or every Chinese caption—including explicitly Traditional tracks.
 - Uses YouTube translation to Traditional Chinese by default when only Simplified Chinese captions are available; local OpenCC conversion is also available.
 - VIP unlocks OpenCC Taiwan phrases, conservative Hong Kong colloquial replacements, up to 100 custom replacement rules, and up to 50 per-channel rules.
 - VIP identity is linked to a Google account. The website supports Lemon Squeezy checkout, manually verified bank transfers, account order history, and admin review. Device count is currently not limited.

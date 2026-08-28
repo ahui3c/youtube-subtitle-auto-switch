@@ -8,12 +8,17 @@ let captureCalls = 0;
 let lastIconPath;
 let lastTitle;
 let lastBadgeText;
+let iconSetCalls = 0;
+let iconFailuresRemaining = 0;
 let injectedScripts = [];
 let openedTabUrl = "";
 let localStorage = {};
 let syncStorage = { settings: { enabled: true } };
 let googleReady = false;
 let cloudOffline = false;
+let entitlementOffline = false;
+let entitlementFetchCalls = 0;
+let cloudFetchCalls = 0;
 let entitlementResult = null;
 let extensionTokenResult = null;
 let oauthRedirectUrl = "";
@@ -25,6 +30,8 @@ globalThis.fetch = async (url, options = {}) => {
   }
   if (String(url).endsWith("/api/extension/entitlement")) {
     if (String(options.method || "GET").toUpperCase() === "POST") return { ok: true, async json() { return { ok: true }; } };
+    entitlementFetchCalls += 1;
+    if (entitlementOffline) throw new Error("offline");
     if (!entitlementResult) return { ok: false, status: 401, async json() { return {}; } };
     return { ok: true, status: 200, async json() { return entitlementResult; } };
   }
@@ -33,6 +40,7 @@ globalThis.fetch = async (url, options = {}) => {
     return { ok: true, status: 200, async json() { return structuredClone(extensionTokenResult); } };
   }
   if (String(url).endsWith("/api/extension/sync")) {
+    cloudFetchCalls += 1;
     if (cloudOffline) throw new Error("offline");
     const method = String(options.method || "GET").toUpperCase();
     if (method === "GET") return { ok: true, status: 200, async json() { return structuredClone(cloudRemote); } };
@@ -94,6 +102,11 @@ globalThis.chrome = {
   },
   action: {
     async setIcon({ path }) {
+      iconSetCalls += 1;
+      if (iconFailuresRemaining > 0) {
+        iconFailuresRemaining -= 1;
+        throw new Error(`Failed to set icon '${path[16]}': Failed to fetch`);
+      }
       lastIconPath = path;
     },
     async setTitle({ title }) {
@@ -197,6 +210,16 @@ test("面板可直接要求背景校正工具列圖示", async () => {
   assert.equal(lastBadgeText, "");
 });
 
+test("工具列圖示暫時無法載入時會安全重試且不回傳未捕捉錯誤", async () => {
+  const callsBeforeRetry = iconSetCalls;
+  iconFailuresRemaining = 1;
+  const response = await sendMessage({ type: "ytlang:update-action-state", enabled: true });
+
+  assert.deepEqual(response, { ok: true });
+  assert.equal(iconSetCalls, callsBeforeRetry + 2);
+  assert.equal(lastIconPath[16], "icons/enabled-16.png");
+});
+
 test("OpenCC 按需注入後會在同一隔離環境驗證載入結果", async () => {
   injectedScripts = [];
   const response = await sendMessage({ type: "ytlang:load-opencc" }, { tab: { id: 7 }, frameId: 0 });
@@ -296,6 +319,69 @@ test("首次取得 VIP 會套用三項指定預設值", async () => {
   assert.equal(syncStorage.settings.vipDefaultsVersion, 1);
 });
 
+test("VIP 狀態在快取期間不會重複向伺服器查詢", async () => {
+  entitlementFetchCalls = 0;
+  localStorage = {
+    vipAccessToken: "cached-token",
+    vipEntitlement: {
+      authenticated: true,
+      vipActive: true,
+      paidVipActive: true,
+      accessSource: "paid",
+      email: "cached@example.com",
+      checkedAt: new Date().toISOString(),
+      lastSuccessfulCheckAt: new Date().toISOString()
+    }
+  };
+  const first = await sendMessage({ type: "ytlang:vip-get-status" });
+  const second = await sendMessage({ type: "ytlang:vip-get-status" });
+  assert.equal(first.entitlement.vipActive, true);
+  assert.equal(second.entitlement.vipActive, true);
+  assert.equal(entitlementFetchCalls, 0);
+});
+
+test("短暫離線時保留已購買 VIP 並套用退避時間", async () => {
+  entitlementOffline = true;
+  localStorage = {
+    vipAccessToken: "offline-paid-token",
+    vipEntitlement: {
+      authenticated: true,
+      vipActive: true,
+      paidVipActive: true,
+      accessSource: "paid",
+      email: "paid@example.com",
+      checkedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      lastSuccessfulCheckAt: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    }
+  };
+  const response = await sendMessage({ type: "ytlang:vip-get-status", force: true });
+  assert.equal(response.entitlement.vipActive, true);
+  assert.equal(response.entitlement.verificationStatus, "offline");
+  assert.ok(Date.parse(response.entitlement.nextRetryAt) > Date.now());
+  entitlementOffline = false;
+});
+
+test("已購買 VIP 超過七天無法驗證時會暫停進階功能", async () => {
+  entitlementOffline = true;
+  localStorage = {
+    vipAccessToken: "stale-paid-token",
+    vipEntitlement: {
+      authenticated: true,
+      vipActive: true,
+      paidVipActive: true,
+      accessSource: "paid",
+      email: "stale@example.com",
+      checkedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      lastSuccessfulCheckAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  };
+  const response = await sendMessage({ type: "ytlang:vip-get-status", force: true });
+  assert.equal(response.entitlement.vipActive, false);
+  assert.equal(response.entitlement.offlineGraceExpired, true);
+  assert.equal(localStorage.cloudSyncState.status, "locked");
+  entitlementOffline = false;
+});
+
 test("雲端同步預設關閉，啟用後會安全上傳本機資料", async () => {
   localStorage = {
     vipAccessToken: "token",
@@ -321,10 +407,15 @@ test("離線時保留待同步狀態且不影響本機資料", async () => {
     status: "synced", accountEmail: "vip@example.com"
   };
   cloudOffline = true;
+  cloudFetchCalls = 0;
   const response = await sendMessage({ type: "ytlang:cloud-sync-local-changed" });
   assert.equal(response.state.status, "offline");
   assert.equal(response.state.pending, true);
+  assert.ok(Date.parse(response.state.nextRetryAt) > Date.now());
   assert.deepEqual(response.data.customReplacements, localStorage.customReplacements);
+  const retried = await sendMessage({ type: "ytlang:cloud-sync-local-changed" });
+  assert.equal(retried.state.status, "offline");
+  assert.equal(cloudFetchCalls, 1);
   cloudOffline = false;
 });
 

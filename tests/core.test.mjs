@@ -214,36 +214,84 @@ test("人工字幕優先於同語言 ASR", () => {
   assert.equal(plan.track.name, "繁中");
 });
 
-test("通用 zh 中文字幕會以原生字幕開啟", () => {
+test("通用 zh 中文字幕預設會強制轉為繁體", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [{ languageCode: "zh", name: "中文", isTranslatable: true }],
     translationLanguages: translations
   }, {});
-  assert.equal(plan.type, "native");
+  assert.equal(plan.type, "translate");
   assert.equal(plan.ruleId, "zh-manual");
   assert.equal(plan.track.languageCode, "zh");
 });
 
-test("沒有 ASR kind 或 a. vssId 的 zh 軌應視為人工中文字幕", () => {
+test("通用 zh 中文字幕可依設定使用本機 OpenCC", () => {
   const plan = Core.chooseCaptionPlan({
     captionTracks: [{ languageCode: "zh", name: "中文", kind: "", vssId: ".zh" }],
     translationLanguages: translations
-  }, {});
-  assert.equal(plan.type, "native");
+  }, { simplifiedMode: "opencc" });
+  assert.equal(plan.type, "opencc");
   assert.equal(plan.ruleId, "zh-manual");
 });
 
-test("移除後不再選擇通用 zh 自動字幕", () => {
+test("通用 zh 自動字幕也歸入中文字幕規則", () => {
   const plan = Core.chooseCaptionPlan({
-    captionTracks: [{ languageCode: "zh", name: "中文", isAutomatic: true }],
+    captionTracks: [{ languageCode: "zh", name: "中文", isAutomatic: true, isTranslatable: true }],
     translationLanguages: translations
   }, {});
-  assert.equal(plan.type, "none");
+  assert.equal(plan.type, "translate");
+  assert.equal(plan.ruleId, "zh-manual");
 });
 
-test("較長的中文腳本代碼仍可正確分類", () => {
-  assert.equal(Core.familyOf({ languageCode: "zh-Hant-TW", name: "中文" }), "traditional");
-  assert.equal(Core.familyOf({ languageCode: "zh-Hans-CN", name: "中文" }), "simplified");
+test("中文字幕語言代碼會依簡繁與粵語正確分類", () => {
+  for (const languageCode of ["zh-Hant", "zh-Hant-TW", "zh-TW", "zh-HK", "zh-MO"]) {
+    assert.equal(Core.familyOf({ languageCode, name: "中文" }), "traditional");
+  }
+  for (const languageCode of ["zh-Hans", "zh-Hans-CN", "zh-CN", "zh-SG"]) {
+    assert.equal(Core.familyOf({ languageCode, name: "中文" }), "simplified");
+  }
+  assert.equal(Core.familyOf({ languageCode: "zh", name: "中文" }), "chinese");
+  assert.equal(Core.familyOf({ languageCode: "yue", name: "粵語" }), "cantonese");
+  assert.equal(Core.familyOf({ languageCode: "yue-Hant", name: "中文（繁體）" }), "cantonese");
+});
+
+test("粵語字幕使用獨立優先順序規則並維持原生字幕", () => {
+  const plan = Core.chooseCaptionPlan({
+    captionTracks: [{ languageCode: "yue-Hant", name: "粵語（香港）", isAutomatic: true }],
+    translationLanguages: translations
+  }, {});
+  assert.equal(plan.type, "native");
+  assert.equal(plan.ruleId, "yue-manual");
+});
+
+test("全部中文強制轉換會處理明確繁體字幕", () => {
+  const playerData = {
+    captionTracks: [{ languageCode: "zh-Hant-TW", name: "中文（繁體）", isTranslatable: true }],
+    translationLanguages: translations
+  };
+  assert.equal(Core.chooseCaptionPlan(playerData, {}).type, "native");
+  assert.equal(Core.chooseCaptionPlan(playerData, {
+    chineseConversionScope: "all"
+  }).type, "translate");
+  assert.equal(Core.chooseCaptionPlan(playerData, {
+    chineseConversionScope: "all",
+    simplifiedMode: "opencc"
+  }).type, "opencc");
+});
+
+test("僅處理確認簡體字幕不轉換未定義 zh 或明確繁體", () => {
+  const base = { translationLanguages: translations };
+  assert.equal(Core.chooseCaptionPlan({
+    ...base,
+    captionTracks: [{ languageCode: "zh", name: "中文", isTranslatable: true }]
+  }, { chineseConversionScope: "confirmed" }).type, "native");
+  assert.equal(Core.chooseCaptionPlan({
+    ...base,
+    captionTracks: [{ languageCode: "zh-TW", name: "中文（繁體）", isTranslatable: true }]
+  }, { chineseConversionScope: "confirmed" }).type, "native");
+  assert.equal(Core.chooseCaptionPlan({
+    ...base,
+    captionTracks: [{ languageCode: "zh-CN", name: "中文（簡體）", isTranslatable: true }]
+  }, { chineseConversionScope: "confirmed" }).type, "translate");
 });
 
 test("移除自動繁中規則後停用人工繁中便不選擇該軌", () => {
@@ -273,8 +321,9 @@ test("設定合併會排除不存在及重複的停用規則", () => {
 
 test("舊設定只遷移一次到新的字幕預設", () => {
   const migrated = Core.migrateStoredSettings({ simplifiedMode: "opencc", disabledRules: [] });
-  assert.equal(migrated.settingsVersion, 7);
+  assert.equal(migrated.settingsVersion, 8);
   assert.equal(migrated.simplifiedMode, "youtube");
+  assert.equal(migrated.chineseConversionScope, "unspecified");
   assert.deepEqual(migrated.disabledRules, ["en-manual", "en-auto", "other"]);
 
   const customized = Core.migrateStoredSettings({
@@ -447,21 +496,22 @@ test("首次取得 VIP 時套用台灣與自訂詞彙預設並維持香港口語
   assert.equal(customized.hongKongColloquialEnabled, true);
 });
 
-test("舊版優先順序會移除三個自動產生的中文規則", () => {
+test("舊版優先順序會移除舊自動規則並加入中文字幕及粵語規則", () => {
   const oldPriority = [
     "trad-manual", "trad-auto", "simp-manual", "simp-auto", "en-manual", "en-auto", "other"
   ];
   const settings = Core.mergeSettings({ priority: oldPriority });
   assert.deepEqual(settings.priority, [
-    "trad-manual", "zh-manual", "simp-manual", "en-manual", "en-auto", "other"
+    "trad-manual", "zh-manual", "simp-manual", "yue-manual", "en-manual", "en-auto", "other"
   ]);
 });
 
-test("字幕優先順序使用整理後的六個顯示名稱", () => {
+test("字幕優先順序使用包含粵語的七個顯示名稱", () => {
   assert.deepEqual(Core.RULES.map((rule) => rule.id), [
     "trad-manual",
     "zh-manual",
     "simp-manual",
+    "yue-manual",
     "en-manual",
     "en-auto",
     "other"
@@ -470,6 +520,7 @@ test("字幕優先順序使用整理後的六個顯示名稱", () => {
     "中文繁體字幕",
     "中文字幕",
     "中文簡體字幕",
+    "粵語字幕",
     "英文字幕",
     "自動產生的英文字幕",
     "其他可翻譯語言字幕"

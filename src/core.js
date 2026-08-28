@@ -2,15 +2,16 @@
   "use strict";
 
   const RULES = Object.freeze([
-    { id: "trad-manual", label: "中文繁體字幕", family: "traditional", automatic: false, action: "native" },
-    { id: "zh-manual", label: "中文字幕", family: "chinese", automatic: false, action: "native" },
-    { id: "simp-manual", label: "中文簡體字幕", family: "simplified", automatic: false, action: "simplified" },
+    { id: "trad-manual", label: "中文繁體字幕", family: "traditional", automatic: null, action: "native" },
+    { id: "zh-manual", label: "中文字幕", family: "chinese", automatic: null, action: "native" },
+    { id: "simp-manual", label: "中文簡體字幕", family: "simplified", automatic: null, action: "simplified" },
+    { id: "yue-manual", label: "粵語字幕", family: "cantonese", automatic: null, action: "native" },
     { id: "en-manual", label: "英文字幕", family: "english", automatic: false, action: "translate" },
     { id: "en-auto", label: "自動產生的英文字幕", family: "english", automatic: true, action: "translate" },
     { id: "other", label: "其他可翻譯語言字幕", family: "other", automatic: null, action: "translate" }
   ]);
 
-  const SETTINGS_VERSION = 7;
+  const SETTINGS_VERSION = 8;
   const VIP_DEFAULTS_VERSION = 1;
   const DEFAULT_DISABLED_RULES = Object.freeze(["en-manual", "en-auto", "other"]);
   const CHANNEL_RULE_MODES = Object.freeze([
@@ -92,6 +93,7 @@
     enabled: true,
     autoEnableCaptions: true,
     simplifiedMode: "youtube",
+    chineseConversionScope: "unspecified",
     embeddedDetection: true,
     skipEmbeddedDetectionForSimplifiedOnly: false,
     taiwanTermsEnabled: true,
@@ -106,6 +108,7 @@
 
   const TRADITIONAL_CODES = new Set(["zh-hant", "zh-tw", "zh-hk", "zh-mo"]);
   const SIMPLIFIED_CODES = new Set(["zh-hans", "zh-cn", "zh-sg"]);
+  const CANTONESE_CODES = new Set(["yue", "yue-hant"]);
   const ENGLISH_CODES = new Set(["en", "en-us", "en-gb", "en-ca", "en-au"]);
 
   function normalizeLanguageCode(value) {
@@ -121,11 +124,15 @@
   function familyOf(track) {
     const code = normalizeLanguageCode(track?.languageCode);
     const name = String(track?.name || "").toLowerCase();
+    if (CANTONESE_CODES.has(code) || code.startsWith("yue-")) return "cantonese";
     if (TRADITIONAL_CODES.has(code) || code.startsWith("zh-hant-") || /繁體|繁体|traditional/.test(name)) {
       return "traditional";
     }
     if (SIMPLIFIED_CODES.has(code) || code.startsWith("zh-hans-") || /簡體|简体|simplified/.test(name)) {
       return "simplified";
+    }
+    if (/粵語|粤语|cantonese/.test(name)) {
+      return "cantonese";
     }
     if (code === "zh" || code.startsWith("zh-") || /中文|chinese/.test(name)) return "chinese";
     if (ENGLISH_CODES.has(code) || code.startsWith("en-")) return "english";
@@ -165,6 +172,9 @@
       ...input,
       settingsVersion: SETTINGS_VERSION,
       simplifiedMode: input.simplifiedMode === "opencc" ? "opencc" : "youtube",
+      chineseConversionScope: ["confirmed", "all"].includes(input.chineseConversionScope)
+        ? input.chineseConversionScope
+        : "unspecified",
       skipEmbeddedDetectionForSimplifiedOnly: input.skipEmbeddedDetectionForSimplifiedOnly === true,
       taiwanTermsEnabled: input.taiwanTermsEnabled !== false,
       hongKongColloquialEnabled: input.hongKongColloquialEnabled === true,
@@ -325,6 +335,14 @@
     return null;
   }
 
+  function shouldConvertChineseFamily(family, rawSettings) {
+    const settings = mergeSettings(rawSettings);
+    if (family === "simplified") return true;
+    if (family === "chinese") return settings.chineseConversionScope === "unspecified"
+      || settings.chineseConversionScope === "all";
+    return family === "traditional" && settings.chineseConversionScope === "all";
+  }
+
   function chooseCaptionPlan(playerData, rawSettings) {
     const settings = mergeSettings(rawSettings);
     if (!settings.enabled) return { type: "disabled", reason: "extension-disabled" };
@@ -345,15 +363,27 @@
     if (!rules.length) return { type: "none", reason: "all-rules-disabled" };
 
     for (const rule of rules) {
-      const track = tracks.find((candidate) => ruleMatches(rule, candidate));
+      const matchingTracks = tracks.filter((candidate) => ruleMatches(rule, candidate));
+      const track = rule.automatic === null
+        ? matchingTracks.find((candidate) => !isAutomatic(candidate)) || matchingTracks[0]
+        : matchingTracks[0];
       if (!track) continue;
+
+      const convertChinese = shouldConvertChineseFamily(rule.family, settings);
+      if (convertChinese && settings.simplifiedMode === "opencc") {
+        return { type: "opencc", ruleId: rule.id, track };
+      }
+
+      if (convertChinese) {
+        const target = findTraditionalTarget(playerData.translationLanguages);
+        if (track.isTranslatable !== false && target) {
+          return { type: "translate", ruleId: rule.id, track, target };
+        }
+        return { type: "native", ruleId: rule.id, track, warning: "traditional-target-unavailable" };
+      }
 
       if (rule.action === "native") {
         return { type: "native", ruleId: rule.id, track };
-      }
-
-      if (rule.action === "simplified" && settings.simplifiedMode === "opencc") {
-        return { type: "opencc", ruleId: rule.id, track };
       }
 
       const target = findTraditionalTarget(playerData.translationLanguages);
@@ -361,9 +391,6 @@
         return { type: "translate", ruleId: rule.id, track, target };
       }
 
-      if (rule.action === "simplified") {
-        return { type: "native", ruleId: rule.id, track, warning: "traditional-target-unavailable" };
-      }
     }
 
     return { type: "none", reason: "no-matching-rule" };
@@ -646,6 +673,7 @@
     shouldApplyHongKongConversion,
     shouldMonitorCaptions,
     findTraditionalTarget,
+    shouldConvertChineseFamily,
     chooseCaptionPlan,
     shouldProbeCaptionControl,
     channelRuleFor,

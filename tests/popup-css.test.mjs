@@ -65,6 +65,22 @@ test("面板使用新的全自動簡轉繁與台灣用語顯示名稱", () => {
   assert.match(html, /id="taiwanTermsEnabled"[^>]+aria-label="使用台灣用語顯示"/);
 });
 
+test("簡繁轉換範圍提供三個互斥選項", () => {
+  assert.match(html, /name="chineseConversionScope" value="confirmed"/);
+  assert.match(html, /僅處理確認簡體字幕/);
+  assert.match(html, /name="chineseConversionScope" value="unspecified"/);
+  assert.match(html, /未定義簡繁中文強制轉換/);
+  assert.match(html, /name="chineseConversionScope" value="all"/);
+  assert.match(html, /全部中文強制轉換/);
+  assert.match(js, /settings\.chineseConversionScope/);
+  assert.match(js, /querySelectorAll\('input\[name="chineseConversionScope"\]'\)/);
+});
+
+test("一般 checked 樣式不會替中文範圍選項文字加上整片色塊", () => {
+  assert.doesNotMatch(css, /(?:^|\n)input:checked \+ span\s*\{/);
+  assert.match(css, /\.conversion-scope-option span\s*\{[^}]*background:\s*transparent;/s);
+});
+
 test("指定頻道規則只顯示四種新選項", () => {
   for (const label of [
     "停用全部功能",

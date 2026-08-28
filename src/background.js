@@ -7,6 +7,10 @@ const VIP_ACCOUNT_SETUP_URL = `${VIP_SITE}/account?source=extension&error=google
 const CLOUD_SYNC_URL = `${VIP_SITE}/api/extension/sync`;
 const MAX_CUSTOM_REPLACEMENTS = 100;
 const MAX_CHANNEL_RULES = 50;
+const VIP_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+const VIP_OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+const VIP_RETRY_BASE_MS = 60 * 1000;
+const VIP_RETRY_MAX_MS = 60 * 60 * 1000;
 const CHANNEL_RULE_MODES = new Set([
   "disabled",
   "force-enable-no-ocr",
@@ -14,6 +18,7 @@ const CHANNEL_RULE_MODES = new Set([
   "force-enable-convert-hk"
 ]);
 let vipExpiryTimer = null;
+let vipRefreshPromise = null;
 
 function localGet(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -104,6 +109,8 @@ function normalizeVipEntitlement(entitlement) {
     && explicitlyTrial
     && Number.isFinite(trialExpiresMs)
     && trialExpiresMs > Date.now();
+  const checkedAt = String(entitlement?.checkedAt || "");
+  const lastSuccessfulCheckAt = String(entitlement?.lastSuccessfulCheckAt || checkedAt);
   return {
     authenticated: entitlement?.authenticated === true,
     vipActive: paidVipActive || trialActive,
@@ -117,7 +124,12 @@ function normalizeVipEntitlement(entitlement) {
     email: String(entitlement?.email || entitlement?.account?.email || ""),
     displayName: String(entitlement?.displayName || entitlement?.account?.displayName || ""),
     plan: paidVipActive ? String(entitlement?.plan || "vip_lifetime") : trialActive ? "trial_24h" : "",
-    checkedAt: entitlement?.checkedAt || new Date().toISOString()
+    checkedAt,
+    lastSuccessfulCheckAt,
+    nextRetryAt: String(entitlement?.nextRetryAt || ""),
+    consecutiveFailures: Math.max(0, Number(entitlement?.consecutiveFailures || 0)),
+    verificationStatus: String(entitlement?.verificationStatus || "verified"),
+    offlineGraceExpired: entitlement?.offlineGraceExpired === true
   };
 }
 
@@ -155,7 +167,12 @@ async function storeVipEntitlement(entitlement) {
     || current.accessSource !== value.accessSource
     || current.email !== value.email
     || current.displayName !== value.displayName
-    || current.plan !== value.plan;
+    || current.plan !== value.plan
+    || current.lastSuccessfulCheckAt !== value.lastSuccessfulCheckAt
+    || current.nextRetryAt !== value.nextRetryAt
+    || current.consecutiveFailures !== value.consecutiveFailures
+    || current.verificationStatus !== value.verificationStatus
+    || current.offlineGraceExpired !== value.offlineGraceExpired;
   if (changed || current.checkedAt !== value.checkedAt) await chrome.storage.local.set({ vipEntitlement: value });
   if (value.vipActive) await initializeVipDefaults();
   scheduleVipExpiry(value);
@@ -172,7 +189,40 @@ async function storeVipEntitlement(entitlement) {
   return value;
 }
 
-async function refreshVipEntitlement(force = false) {
+function retryDelay(failureCount) {
+  const exponential = Math.min(VIP_RETRY_MAX_MS, VIP_RETRY_BASE_MS * (2 ** Math.min(6, Math.max(0, failureCount - 1))));
+  return Math.round(exponential * (0.85 + Math.random() * 0.3));
+}
+
+async function storeTransientVipFailure(entitlement) {
+  const current = normalizeVipEntitlement(entitlement || { authenticated: true, vipActive: false, checkedAt: "" });
+  const now = Date.now();
+  let lastSuccessfulMs = Date.parse(current.lastSuccessfulCheckAt || current.checkedAt || "");
+  if (current.paidVipActive && !Number.isFinite(lastSuccessfulMs)) lastSuccessfulMs = now;
+  const offlineGraceExpired = current.paidVipActive
+    && Number.isFinite(lastSuccessfulMs)
+    && now - lastSuccessfulMs > VIP_OFFLINE_GRACE_MS;
+  const consecutiveFailures = current.consecutiveFailures + 1;
+  const failureState = {
+    ...current,
+    lastSuccessfulCheckAt: Number.isFinite(lastSuccessfulMs) ? new Date(lastSuccessfulMs).toISOString() : "",
+    nextRetryAt: new Date(now + retryDelay(consecutiveFailures)).toISOString(),
+    consecutiveFailures,
+    verificationStatus: "offline",
+    offlineGraceExpired
+  };
+  if (offlineGraceExpired) {
+    Object.assign(failureState, {
+      vipActive: false,
+      paidVipActive: false,
+      accessSource: "free",
+      plan: ""
+    });
+  }
+  return storeVipEntitlement(failureState);
+}
+
+async function performVipEntitlementRefresh(force = false) {
   const stored = await localGet(["vipAccessToken", "vipEntitlement"]);
   if (!stored.vipAccessToken) {
     if (stored.vipEntitlement?.authenticated === false && stored.vipEntitlement?.vipActive === false) return stored.vipEntitlement;
@@ -186,20 +236,41 @@ async function refreshVipEntitlement(force = false) {
     scheduleVipExpiry(normalizedStored);
   }
   const checkedAt = Date.parse(normalizedStored.checkedAt || "");
-  if (!force && Number.isFinite(checkedAt) && Date.now() - checkedAt < 15 * 60 * 1000) return normalizedStored;
+  const nextRetryAt = Date.parse(normalizedStored.nextRetryAt || "");
+  if (!force && Number.isFinite(nextRetryAt) && nextRetryAt > Date.now()) return normalizedStored;
+  if (!force && Number.isFinite(checkedAt) && Date.now() - checkedAt < VIP_REFRESH_INTERVAL_MS) return normalizedStored;
   try {
     const response = await fetch(`${VIP_SITE}/api/extension/entitlement`, {
       headers: { authorization: `Bearer ${stored.vipAccessToken}` },
       cache: "no-store"
     });
     if (!response.ok) {
-      if (response.status === 401) await chrome.storage.local.remove("vipAccessToken");
-      return storeVipEntitlement({ authenticated: false, vipActive: false });
+      if (response.status === 401) {
+        await chrome.storage.local.remove("vipAccessToken");
+        return storeVipEntitlement({ authenticated: false, vipActive: false });
+      }
+      throw new Error(`vip-http-${response.status}`);
     }
-    return storeVipEntitlement(await response.json());
+    const result = await response.json();
+    const successfulAt = String(result.checkedAt || new Date().toISOString());
+    return storeVipEntitlement({
+      ...result,
+      checkedAt: successfulAt,
+      lastSuccessfulCheckAt: successfulAt,
+      nextRetryAt: "",
+      consecutiveFailures: 0,
+      verificationStatus: "verified",
+      offlineGraceExpired: false
+    });
   } catch {
-    return normalizeVipEntitlement(stored.vipEntitlement || { authenticated: true, vipActive: false, checkedAt: "" });
+    return storeTransientVipFailure(stored.vipEntitlement);
   }
+}
+
+function refreshVipEntitlement(force = false) {
+  if (vipRefreshPromise) return vipRefreshPromise;
+  vipRefreshPromise = performVipEntitlementRefresh(force).finally(() => { vipRefreshPromise = null; });
+  return vipRefreshPromise;
 }
 
 function launchWebAuthFlow(url) {
@@ -218,7 +289,7 @@ function launchWebAuthFlow(url) {
 
 async function checkGoogleAuthReady() {
   try {
-    const response = await fetch(VIP_AUTH_STATUS_URL, { cache: "no-store" });
+    const response = await fetch(VIP_AUTH_STATUS_URL);
     if (!response.ok) return null;
     const status = await response.json();
     return status.googleReady === true;
@@ -259,7 +330,9 @@ async function connectVipAccount() {
   const entitlement = await storeVipEntitlement({
     authenticated: true,
     ...result.account,
-    checkedAt: new Date().toISOString()
+    checkedAt: new Date().toISOString(),
+    lastSuccessfulCheckAt: new Date().toISOString(),
+    verificationStatus: "verified"
   });
   if (purchaseAfterConnect && entitlement.paidVipActive !== true) {
     await chrome.tabs.create({ url: `${VIP_SITE}/checkout` });
@@ -288,7 +361,9 @@ function defaultCloudSyncState() {
     status: "disabled",
     lastSyncedAt: "",
     lastError: "",
-    accountEmail: ""
+    accountEmail: "",
+    nextRetryAt: "",
+    consecutiveFailures: 0
   };
 }
 
@@ -353,6 +428,7 @@ async function cloudSyncRequest(method, body) {
   if (!response.ok) {
     const error = new Error(result.message || (response.status === 409 ? "雲端資料已有較新版本" : "雲端同步失敗"));
     error.code = response.status === 409 ? "conflict" : response.status === 401 ? "unauthorized" : "request_failed";
+    error.retryAfter = Math.max(0, Number(response.headers?.get?.("retry-after") || 0));
     error.current = result.current;
     throw error;
   }
@@ -376,6 +452,10 @@ async function performCloudSync(mode = "auto") {
     });
     return { state: changedAccount, data: await getLocalCloudData() };
   }
+  const nextRetryAt = Date.parse(state.nextRetryAt || "");
+  if (mode === "auto" && Number.isFinite(nextRetryAt) && nextRetryAt > Date.now()) {
+    return { state, data: await getLocalCloudData() };
+  }
 
   await storeCloudSyncState({ status: "syncing", lastError: "" });
   try {
@@ -387,7 +467,8 @@ async function performCloudSync(mode = "auto") {
       const data = await storeLocalCloudData(remoteData);
       const next = await storeCloudSyncState({
         revision: Number(remote.revision || 0), pending: false, conflict: false,
-        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: ""
+        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: "",
+        nextRetryAt: "", consecutiveFailures: 0
       });
       return { state: next, data };
     }
@@ -399,7 +480,8 @@ async function performCloudSync(mode = "auto") {
       });
       const next = await storeCloudSyncState({
         revision: Number(saved.revision || 0), pending: false, conflict: false,
-        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: ""
+        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: "",
+        nextRetryAt: "", consecutiveFailures: 0
       });
       return { state: next, data: localData };
     }
@@ -411,7 +493,8 @@ async function performCloudSync(mode = "auto") {
       });
       const next = await storeCloudSyncState({
         revision: Number(saved.revision || 0), pending: false, conflict: false,
-        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: ""
+        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: "",
+        nextRetryAt: "", consecutiveFailures: 0
       });
       return { state: next, data: localData };
     }
@@ -420,25 +503,34 @@ async function performCloudSync(mode = "auto") {
       const data = await storeLocalCloudData(remoteData);
       const next = await storeCloudSyncState({
         revision: Number(remote.revision || 0), pending: false, conflict: false,
-        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: ""
+        status: "synced", lastSyncedAt: new Date().toISOString(), lastError: "",
+        nextRetryAt: "", consecutiveFailures: 0
       });
       return { state: next, data };
     }
 
     const next = await storeCloudSyncState({
       revision: Number(remote.revision || state.revision || 0), conflict: false,
-      status: "synced", lastSyncedAt: new Date().toISOString(), lastError: ""
+      status: "synced", lastSyncedAt: new Date().toISOString(), lastError: "",
+      nextRetryAt: "", consecutiveFailures: 0
     });
     return { state: next, data: localData };
   } catch (error) {
     if (error.code === "conflict") {
       const next = await storeCloudSyncState({
-        conflict: true, status: "conflict", lastError: "本機與網站都有新修改，請選擇要保留哪一份"
+        conflict: true, status: "conflict", lastError: "本機與網站都有新修改，請選擇要保留哪一份",
+        nextRetryAt: "", consecutiveFailures: 0
       });
       return { state: next, data: await getLocalCloudData() };
     }
+    const consecutiveFailures = Math.max(0, Number(state.consecutiveFailures || 0)) + 1;
+    const retryAfterMs = Number(error.retryAfter || 0) > 0
+      ? Number(error.retryAfter) * 1000
+      : retryDelay(consecutiveFailures);
     const next = await storeCloudSyncState({
-      status: "offline", lastError: "目前無法連接同步服務，本機設定會繼續正常使用"
+      status: "offline", lastError: "目前無法連接同步服務，本機設定會繼續正常使用",
+      nextRetryAt: new Date(Date.now() + retryAfterMs).toISOString(),
+      consecutiveFailures
     });
     return { state: next, data: await getLocalCloudData() };
   }
@@ -453,7 +545,8 @@ function syncCloudData(mode = "auto") {
 async function setCloudSyncEnabled(enabled) {
   if (!enabled) {
     const state = await storeCloudSyncState({
-      enabled: false, pending: false, conflict: false, status: "disabled", lastError: ""
+      enabled: false, pending: false, conflict: false, status: "disabled", lastError: "",
+      nextRetryAt: "", consecutiveFailures: 0
     });
     return { state, data: await getLocalCloudData() };
   }
@@ -465,7 +558,7 @@ async function setCloudSyncEnabled(enabled) {
   const hasLocalData = localData.customReplacements.length > 0 || localData.channelRules.length > 0;
   await storeCloudSyncState({
     enabled: true, pending: hasLocalData, conflict: false, status: "syncing", lastError: "",
-    accountEmail: String(entitlement.email || "")
+    accountEmail: String(entitlement.email || ""), nextRetryAt: "", consecutiveFailures: 0
   });
   return syncCloudData("auto");
 }
@@ -473,7 +566,12 @@ async function setCloudSyncEnabled(enabled) {
 async function markCloudDataChanged() {
   const state = await getCloudSyncState();
   if (!state.enabled) return { state, data: await getLocalCloudData() };
-  await storeCloudSyncState({ pending: true, status: "pending", lastError: "" });
+  const retryPending = Date.parse(state.nextRetryAt || "") > Date.now();
+  await storeCloudSyncState({
+    pending: true,
+    status: retryPending ? "offline" : "pending",
+    lastError: retryPending ? state.lastError : ""
+  });
   return syncCloudData("auto");
 }
 
@@ -482,34 +580,59 @@ function actionIconPaths(enabled) {
   return Object.fromEntries(ACTION_ICON_SIZES.map((size) => [size, `icons/${state}-${size}.png`]));
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function setActionIconSafely(enabled) {
+  const path = actionIconPaths(enabled);
+  const retryDelays = [0, 80, 240];
+  for (const retryDelay of retryDelays) {
+    if (retryDelay) await wait(retryDelay);
+    try {
+      await chrome.action.setIcon({ path });
+      return true;
+    } catch (error) {
+      const message = String(error?.message || error || "");
+      if (/extension context invalidated/i.test(message)) return false;
+    }
+  }
+  return false;
+}
+
 async function updateActionState(enabled) {
-  await Promise.all([
-    chrome.action.setIcon({ path: actionIconPaths(enabled) }),
+  const results = await Promise.allSettled([
+    setActionIconSafely(enabled),
     chrome.action.setTitle({ title: `Youtube 字幕全自動開關：${enabled ? "已開啟" : "已關閉"}` }),
     chrome.action.setBadgeText({ text: enabled ? "" : "OFF" }),
     chrome.action.setBadgeBackgroundColor({ color: "#7A8288" })
   ]);
+  return results.every((result) => result.status === "fulfilled");
 }
 
 async function syncActionState() {
-  const result = await chrome.storage.sync.get("settings");
-  await updateActionState(result.settings?.enabled !== false);
+  try {
+    const result = await chrome.storage.sync.get("settings");
+    return updateActionState(result.settings?.enabled !== false);
+  } catch {
+    return false;
+  }
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !changes.settings) return;
-  updateActionState(changes.settings.newValue?.enabled !== false);
+  void updateActionState(changes.settings.newValue?.enabled !== false);
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  syncActionState();
+  void syncActionState();
   refreshVipEntitlement().then(() => syncCloudData("auto")).catch(() => null);
 });
 chrome.runtime.onStartup.addListener(() => {
-  syncActionState();
+  void syncActionState();
   refreshVipEntitlement().then(() => syncCloudData("auto")).catch(() => null);
 });
-syncActionState();
+void syncActionState();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "ytlang:vip-get-status") {

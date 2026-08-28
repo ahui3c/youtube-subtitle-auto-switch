@@ -11,6 +11,7 @@ let observeCount = 0;
 let disconnectCount = 0;
 let localStatusWrites = 0;
 let runtimeMessageListener;
+let runtimeMessageListenerRemoved = false;
 const appliedPlans = [];
 let enableCaptionEvents = 0;
 let disableCaptionEvents = 0;
@@ -42,6 +43,10 @@ globalThis.document = {
     if (!listeners.has(type)) listeners.set(type, []);
     listeners.get(type).push(listener);
   },
+  removeEventListener(type, listener) {
+    const existing = listeners.get(type) || [];
+    listeners.set(type, existing.filter((candidate) => candidate !== listener));
+  },
   dispatchEvent(event) {
     for (const listener of listeners.get(event.type) || []) listener(event);
     return true;
@@ -67,6 +72,7 @@ const storedSettings = {
 
 globalThis.chrome = {
   runtime: {
+    id: "test-extension-id",
     lastError: null,
     sendMessage(message, callback) {
       if (message.type === "ytlang:load-opencc") {
@@ -79,6 +85,9 @@ globalThis.chrome = {
     onMessage: {
       addListener(listener) {
         runtimeMessageListener = listener;
+      },
+      removeListener(listener) {
+        if (runtimeMessageListener === listener) runtimeMessageListenerRemoved = true;
       }
     }
   },
@@ -321,4 +330,34 @@ test("未購買 VIP 時舊設定即使全部開啟也不會執行付費功能", 
   assert.notEqual(response.status.planType, "channel-force-enable");
   assert.equal(enableCaptionEvents, enablesBefore);
   assert.equal(segment.textContent, "我哋软件保存的信息");
+});
+
+test("擴充功能環境失效後會停止舊內容腳本並忽略後續 Chrome API 呼叫", async () => {
+  document.visibilityState = "visible";
+  runtimeMessageListener({
+    type: "ytlang:settings-updated",
+    vipActive: true,
+    settings: storedSettings
+  }, {}, () => {});
+  emit("ytlang:player-data", testPlayerData());
+  await settle();
+  const disconnectBeforeInvalidation = disconnectCount;
+  const writesBeforeInvalidation = localStatusWrites;
+  const plansBeforeInvalidation = appliedPlans.length;
+
+  chrome.storage.local.set = () => {
+    throw new Error("Extension context invalidated.");
+  };
+  emit("ytlang:apply-result", { ok: true, message: "trigger-status-write" });
+  mutationCallback?.([]);
+  emit("ytlang:player-data", { ...testPlayerData(), videoId: "video-after-reload" });
+  await settle();
+
+  assert.ok(disconnectCount > disconnectBeforeInvalidation);
+  assert.equal(runtimeMessageListenerRemoved, true);
+  assert.equal(localStatusWrites, writesBeforeInvalidation);
+  assert.equal(appliedPlans.length, plansBeforeInvalidation);
+  assert.equal((listeners.get("ytlang:player-data") || []).length, 0);
+  assert.equal((listeners.get("ytlang:apply-result") || []).length, 0);
+  assert.equal((listeners.get("visibilitychange") || []).length, 0);
 });

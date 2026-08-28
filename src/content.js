@@ -25,12 +25,92 @@
   let observerStartTimer = 0;
   let openccLoadPromise = null;
   let lastSavedStatusJson = "";
+  let extensionContextActive = true;
+  let runtimeMessageListenerRegistered = false;
+  const scheduledTimers = new Set();
+
+  function extensionContextAvailable() {
+    if (!extensionContextActive) return false;
+    try {
+      return Boolean(globalThis.chrome?.runtime?.id);
+    } catch {
+      return false;
+    }
+  }
+
+  function isContextInvalidatedError(error) {
+    return /extension context invalidated/i.test(String(error?.message || error || ""));
+  }
+
+  function clearScheduledTimer(timerId) {
+    if (!timerId) return;
+    window.clearTimeout(timerId);
+    scheduledTimers.delete(timerId);
+  }
+
+  function schedule(callback, delay) {
+    if (!ensureExtensionContext()) return 0;
+    const timerId = window.setTimeout(() => {
+      scheduledTimers.delete(timerId);
+      if (!ensureExtensionContext()) return;
+      callback();
+    }, delay);
+    scheduledTimers.add(timerId);
+    return timerId;
+  }
+
+  function stopInvalidatedContentScript() {
+    if (!extensionContextActive) return;
+    extensionContextActive = false;
+    captureGeneration += 1;
+    captureArmed = false;
+    pendingCue = null;
+    activeCueKey = "";
+    for (const timerId of scheduledTimers) window.clearTimeout(timerId);
+    scheduledTimers.clear();
+    vipExpiryTimer = 0;
+    observerStartTimer = 0;
+    if (observerActive) observer.disconnect();
+    observerActive = false;
+    document.removeEventListener("ytlang:player-data", handlePlayerData);
+    document.removeEventListener("ytlang:apply-result", handleApplyResult);
+    document.removeEventListener("visibilitychange", syncCaptionMonitoring);
+    document.querySelectorAll(".ytlang-toast").forEach((toast) => toast.remove());
+    if (runtimeMessageListenerRegistered) {
+      try {
+        chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
+      } catch {}
+      runtimeMessageListenerRegistered = false;
+    }
+  }
+
+  function ensureExtensionContext() {
+    if (extensionContextAvailable()) return true;
+    stopInvalidatedContentScript();
+    return false;
+  }
+
+  function handleChromeError(error) {
+    if (isContextInvalidatedError(error) || !extensionContextAvailable()) {
+      stopInvalidatedContentScript();
+    }
+  }
+
+  function runtimeLastError() {
+    try {
+      return chrome.runtime?.lastError || null;
+    } catch (error) {
+      handleChromeError(error);
+      return error;
+    }
+  }
 
   function eventDataAttribute(type) {
     return `data-${type.replace(/:/g, "-")}`;
   }
 
   function emitEvent(type, detail) {
+    if (!ensureExtensionContext()) return;
     if (detail !== undefined) {
       document.documentElement?.setAttribute(eventDataAttribute(type), JSON.stringify(detail));
     }
@@ -59,6 +139,7 @@
   }
 
   function refreshCaptureState() {
+    if (!ensureExtensionContext()) return;
     const skipReason = Core.embeddedDetectionSkipReason(playerData, settings);
     if (detection.skipReason && !skipReason) detection = freshDetection();
     captureArmed = settings.enabled && settings.embeddedDetection && Boolean(playerData?.videoId) && !skipReason;
@@ -73,7 +154,76 @@
   }
 
   function storageGet(area, key) {
-    return new Promise((resolve) => chrome.storage[area].get(key, resolve));
+    return new Promise((resolve) => {
+      if (!ensureExtensionContext()) {
+        resolve({});
+        return;
+      }
+      try {
+        chrome.storage[area].get(key, (value) => {
+          const error = runtimeLastError();
+          if (error) {
+            handleChromeError(error);
+            resolve({});
+            return;
+          }
+          resolve(value || {});
+        });
+      } catch (error) {
+        handleChromeError(error);
+        resolve({});
+      }
+    });
+  }
+
+  function storageSet(area, value) {
+    return new Promise((resolve) => {
+      if (!ensureExtensionContext()) {
+        resolve(false);
+        return;
+      }
+      try {
+        let settled = false;
+        const finish = (success) => {
+          if (settled) return;
+          settled = true;
+          resolve(success);
+        };
+        const pending = chrome.storage[area].set(value, () => {
+          const error = runtimeLastError();
+          if (error) handleChromeError(error);
+          finish(!error);
+        });
+        if (pending?.then) {
+          pending.then(() => finish(true)).catch((error) => {
+            handleChromeError(error);
+            finish(false);
+          });
+        }
+      } catch (error) {
+        handleChromeError(error);
+        resolve(false);
+      }
+    });
+  }
+
+  function runtimeSendMessage(message) {
+    return new Promise((resolve) => {
+      if (!ensureExtensionContext()) {
+        resolve(null);
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          const error = runtimeLastError();
+          if (error) handleChromeError(error);
+          resolve(error ? null : response);
+        });
+      } catch (error) {
+        handleChromeError(error);
+        resolve(null);
+      }
+    });
   }
 
   function applyVipEntitlement(entitlement) {
@@ -86,10 +236,10 @@
       && Number.isFinite(trialExpiresAt)
       && trialExpiresAt > Date.now();
     vipActive = paid || trial;
-    if (vipExpiryTimer) window.clearTimeout(vipExpiryTimer);
+    if (vipExpiryTimer) clearScheduledTimer(vipExpiryTimer);
     vipExpiryTimer = 0;
     if (trial) {
-      vipExpiryTimer = window.setTimeout(() => {
+      vipExpiryTimer = schedule(() => {
         vipExpiryTimer = 0;
         loadSettings().then(() => {
           resetForVideo();
@@ -101,11 +251,13 @@
   }
 
   async function loadSettings() {
+    if (!ensureExtensionContext()) return false;
     const [synced, local, vipResponse] = await Promise.all([
       storageGet("sync", "settings"),
       storageGet("local", ["customReplacements", "channelRules", "vipEntitlement"]),
-      Promise.resolve(chrome.runtime.sendMessage({ type: "ytlang:vip-get-status" })).catch(() => null)
+      runtimeSendMessage({ type: "ytlang:vip-get-status" })
     ]);
+    if (!ensureExtensionContext()) return false;
     const storedSettings = Core.migrateStoredSettings({
       ...synced.settings,
       customReplacements: local.customReplacements || synced.settings?.customReplacements,
@@ -118,11 +270,13 @@
       || synced.settings?.channelRules) {
       const { customReplacements, channelRules, ...syncSettings } = storedSettings;
       await Promise.all([
-        chrome.storage.sync.set({ settings: syncSettings }),
-        chrome.storage.local.set({ customReplacements, channelRules })
+        storageSet("sync", { settings: syncSettings }),
+        storageSet("local", { customReplacements, channelRules })
       ]);
     }
+    if (!ensureExtensionContext()) return false;
     refreshCaptureState();
+    return true;
   }
 
   function statusSnapshot(extra = {}) {
@@ -148,6 +302,7 @@
   }
 
   function saveStatus(extra = {}) {
+    if (!ensureExtensionContext()) return;
     const status = statusSnapshot(extra);
     const serialized = JSON.stringify(status);
     if (serialized === lastSavedStatusJson) return;
@@ -162,7 +317,7 @@
       captureError: status.captureError || "",
       evaluation: status.detectionEvaluation || null
     }));
-    chrome.storage.local.set({ status });
+    void storageSet("local", { status });
   }
 
   function resetForVideo() {
@@ -179,6 +334,7 @@
   }
 
   function selectAndApply() {
+    if (!ensureExtensionContext()) return;
     if (!playerData) return;
     const channelRule = Core.channelRuleFor(playerData, settings);
     if (channelRule?.mode === "disabled") {
@@ -227,16 +383,18 @@
     emitEvent("ytlang:apply-plan", { ...activePlan, videoId: playerData.videoId });
   }
 
-  document.addEventListener("ytlang:player-data", (event) => {
+  function handlePlayerData(event) {
+    if (!ensureExtensionContext()) return;
     const next = eventDetail(event, "ytlang:player-data");
     if (!next?.videoId) return;
     if (playerData?.videoId !== next.videoId) resetForVideo();
     playerData = next;
     refreshCaptureState();
     selectAndApply();
-  });
+  }
 
-  document.addEventListener("ytlang:apply-result", (event) => {
+  function handleApplyResult(event) {
+    if (!ensureExtensionContext()) return;
     const result = eventDetail(event, "ytlang:apply-result") || {};
     if (result.type === "probe") {
       if (result.ok && result.videoId === playerData?.videoId) {
@@ -251,11 +409,14 @@
       return;
     }
     if (!result.ok && applyAttempts < 3) {
-      window.setTimeout(selectAndApply, 700 * applyAttempts);
+      schedule(selectAndApply, 700 * applyAttempts);
       return;
     }
     saveStatus({ applyOk: Boolean(result.ok), applyMessage: result.message || "" });
-  });
+  }
+
+  document.addEventListener("ytlang:player-data", handlePlayerData);
+  document.addEventListener("ytlang:apply-result", handleApplyResult);
 
   function getConverter(target) {
     if (openccConverters.has(target)) return openccConverters.get(target);
@@ -277,17 +438,17 @@
   }
 
   function ensureOpenCC() {
+    if (!ensureExtensionContext()) return Promise.resolve(false);
     if (globalThis.OpenCC?.Converter) return Promise.resolve(true);
     if (openccLoadPromise) return openccLoadPromise;
-    openccLoadPromise = new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "ytlang:load-opencc" }, (response) => {
-        resolve(!chrome.runtime.lastError && response?.ok && Boolean(globalThis.OpenCC?.Converter));
-      });
-    }).finally(() => { openccLoadPromise = null; });
+    openccLoadPromise = runtimeSendMessage({ type: "ytlang:load-opencc" })
+      .then((response) => Boolean(response?.ok && globalThis.OpenCC?.Converter))
+      .finally(() => { openccLoadPromise = null; });
     return openccLoadPromise;
   }
 
   function convertCaptionSegments() {
+    if (!ensureExtensionContext()) return;
     if (!settings.enabled || !playerData?.videoId || activePlan?.type === "channel-disabled") return;
     const channelRuleMode = Core.channelRuleFor(playerData, settings)?.mode || "";
     const target = openccTarget();
@@ -337,13 +498,11 @@
   }
 
   function sendCaptureRequest(rect) {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({
+    return runtimeSendMessage({
         type: "ytlang:capture-frame",
         rect,
         viewport: { width: innerWidth, height: innerHeight, devicePixelRatio }
-      }, (response) => resolve(chrome.runtime.lastError ? null : response));
-    });
+      });
   }
 
   function captionMaskRects(videoRect) {
@@ -405,6 +564,7 @@
   }
 
   async function captureAndAnalyze() {
+    if (!ensureExtensionContext()) return null;
     const rect = videoRect();
     const video = videoElement();
     if (!rect || !video) return null;
@@ -423,10 +583,11 @@
   }
 
   function delay(milliseconds) {
-    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+    return new Promise((resolve) => schedule(resolve, milliseconds));
   }
 
   async function sampleEmbeddedSubtitle(cueKey) {
+    if (!ensureExtensionContext()) return;
     if (detection.complete || !captureArmed || detection.cueKeys.has(cueKey)) return;
     const generation = captureGeneration;
     const attempts = [];
@@ -458,6 +619,7 @@
   }
 
   async function processCaptureQueue() {
+    if (!ensureExtensionContext()) return;
     if (captureBusy) return;
     captureBusy = true;
     try {
@@ -475,12 +637,14 @@
   }
 
   function queueEmbeddedSample(cueKey) {
+    if (!ensureExtensionContext()) return;
     if (detection.cueKeys.has(cueKey)) return;
     pendingCue = cueKey;
     processCaptureQueue();
   }
 
   function handleCue(text) {
+    if (!ensureExtensionContext()) return;
     const normalized = Core.normalizeCueText(text);
     if (!Core.isUsefulCue(normalized) || normalized === lastCue) return;
     lastCue = normalized;
@@ -510,11 +674,13 @@
   }
 
   const observer = new MutationObserver(() => {
+    if (!ensureExtensionContext()) return;
     convertCaptionSegments();
     readCaptionText();
   });
 
   function captionMonitoringNeeded() {
+    if (!ensureExtensionContext()) return false;
     return Core.shouldMonitorCaptions(settings, {
       documentHidden: document.visibilityState === "hidden",
       hasVideo: Boolean(playerData?.videoId),
@@ -528,7 +694,8 @@
   }
 
   function syncCaptionMonitoring() {
-    if (observerStartTimer) window.clearTimeout(observerStartTimer);
+    if (!ensureExtensionContext()) return;
+    if (observerStartTimer) clearScheduledTimer(observerStartTimer);
     observerStartTimer = 0;
     if (!captionMonitoringNeeded()) {
       if (observerActive) observer.disconnect();
@@ -536,7 +703,7 @@
       return;
     }
     if (!document.body) {
-      observerStartTimer = window.setTimeout(syncCaptionMonitoring, 30);
+      observerStartTimer = schedule(syncCaptionMonitoring, 30);
       return;
     }
     if (!observerActive) {
@@ -572,10 +739,11 @@
       toast.append(button);
     }
     player.append(toast);
-    window.setTimeout(() => toast.remove(), offerUndo ? 1000 : 3800);
+    schedule(() => toast.remove(), offerUndo ? 1000 : 3800);
   }
 
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  function handleRuntimeMessage(message, sender, sendResponse) {
+    if (!ensureExtensionContext()) return false;
     if (message?.type === "ytlang:settings-updated") {
       if (typeof message.vipActive === "boolean") vipActive = message.vipActive;
       settings = Core.enforceVipSettings(message.settings, vipActive);
@@ -607,9 +775,13 @@
       return false;
     }
     return false;
-  });
+  }
 
-  loadSettings().then(() => {
+  chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+  runtimeMessageListenerRegistered = true;
+
+  loadSettings().then((loaded) => {
+    if (!loaded || !ensureExtensionContext()) return;
     syncCaptionMonitoring();
     saveStatus();
   });

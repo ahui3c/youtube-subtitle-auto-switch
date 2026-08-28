@@ -265,6 +265,8 @@
     channelRulesSection.setAttribute("aria-disabled", String(!vipActive));
     const radio = document.querySelector(`input[name="simplifiedMode"][value="${settings.simplifiedMode}"]`);
     if (radio) radio.checked = true;
+    const scopeRadio = document.querySelector(`input[name="chineseConversionScope"][value="${settings.chineseConversionScope}"]`);
+    if (scopeRadio) scopeRadio.checked = true;
     simplifiedHint.textContent = settings.simplifiedMode === "youtube"
       ? "由 YouTube 將簡體字幕自動翻譯為繁體中文，結果與時間切分由 YouTube 控制。"
       : "本機轉換不會送出字幕文字，並保留原始時間軸。";
@@ -591,6 +593,15 @@
     });
   }
 
+  for (const radio of document.querySelectorAll('input[name="chineseConversionScope"]')) {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      settings = Core.mergeSettings({ ...settings, chineseConversionScope: radio.value });
+      renderSettings();
+      save();
+    });
+  }
+
   document.getElementById("reapply").addEventListener("click", async () => {
     await sendToTab({ type: "ytlang:reapply" });
     saveStatus.textContent = "已重新套用";
@@ -682,7 +693,7 @@
     const response = await sendToTab({ type: "ytlang:get-status" });
     renderStatus(response?.status || local.status);
     await updateToolbarState(settings.enabled);
-    const vipResponse = await sendToRuntime({ type: "ytlang:vip-get-status", force: true });
+    const vipResponse = await sendToRuntime({ type: "ytlang:vip-get-status" });
     if (vipResponse?.entitlement) {
       vipEntitlement = vipResponse.entitlement;
       renderVipAccount();
