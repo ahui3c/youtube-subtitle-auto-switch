@@ -1,0 +1,29 @@
+name: Daily order review email
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-order-review-email
+  cancel-in-progress: false
+
+jobs:
+  send-review-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request daily review digest
+        env:
+          DAILY_REVIEW_CRON_SECRET: ${{ secrets.DAILY_REVIEW_CRON_SECRET }}
+        run: |
+          test -n "$DAILY_REVIEW_CRON_SECRET"
+          curl --fail-with-body --retry 2 --retry-all-errors \
+            --request POST \
+            --header "Authorization: Bearer $DAILY_REVIEW_CRON_SECRET" \
+            --header "Content-Type: application/json" \
+            https://myapp.ahui3c.com/api/cron/daily-review-email
