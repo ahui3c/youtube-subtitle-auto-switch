@@ -13,6 +13,7 @@ const CHANNEL_RULE_MODES = new Set([
   "force-enable-convert",
   "force-enable-convert-hk"
 ]);
+let vipExpiryTimer = null;
 
 function localGet(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -88,24 +89,79 @@ async function notifyVipStatus(entitlement) {
     : Promise.resolve()));
 }
 
-async function storeVipEntitlement(entitlement) {
-  const value = {
+function normalizeVipEntitlement(entitlement) {
+  const trialStartedAt = String(entitlement?.trialStartedAt || "");
+  const trialExpiresAt = String(entitlement?.trialExpiresAt || "");
+  const trialExpiresMs = Date.parse(trialExpiresAt);
+  const explicitlyTrial = entitlement?.trialActive === true
+    || entitlement?.accessSource === "trial"
+    || entitlement?.plan === "trial_24h";
+  const backwardCompatiblePaid = entitlement?.vipActive === true && !explicitlyTrial && !trialExpiresAt;
+  const paidVipActive = entitlement?.paidVipActive === true
+    || entitlement?.accessSource === "paid"
+    || backwardCompatiblePaid;
+  const trialActive = !paidVipActive
+    && explicitlyTrial
+    && Number.isFinite(trialExpiresMs)
+    && trialExpiresMs > Date.now();
+  return {
     authenticated: entitlement?.authenticated === true,
-    vipActive: entitlement?.vipActive === true,
+    vipActive: paidVipActive || trialActive,
+    paidVipActive,
+    trialActive,
+    trialUsed: entitlement?.trialUsed === true || Boolean(trialStartedAt && trialExpiresAt),
+    trialStartedAt,
+    trialExpiresAt,
+    trialRemainingSeconds: trialActive ? Math.max(0, Math.ceil((trialExpiresMs - Date.now()) / 1000)) : 0,
+    accessSource: paidVipActive ? "paid" : trialActive ? "trial" : "free",
     email: String(entitlement?.email || entitlement?.account?.email || ""),
     displayName: String(entitlement?.displayName || entitlement?.account?.displayName || ""),
-    plan: String(entitlement?.plan || ""),
+    plan: paidVipActive ? String(entitlement?.plan || "vip_lifetime") : trialActive ? "trial_24h" : "",
     checkedAt: entitlement?.checkedAt || new Date().toISOString()
   };
+}
+
+function vipEntitlementActive(entitlement) {
+  return normalizeVipEntitlement(entitlement).vipActive === true;
+}
+
+function scheduleVipExpiry(entitlement) {
+  if (vipExpiryTimer) clearTimeout(vipExpiryTimer);
+  vipExpiryTimer = null;
+  if (entitlement?.trialActive !== true) return;
+  const expiresAt = Date.parse(entitlement.trialExpiresAt || "");
+  if (!Number.isFinite(expiresAt)) return;
+  const delay = Math.max(0, Math.min(expiresAt - Date.now() + 50, 2_147_000_000));
+  vipExpiryTimer = setTimeout(async () => {
+    vipExpiryTimer = null;
+    const current = (await localGet("vipEntitlement")).vipEntitlement;
+    await storeVipEntitlement(current || entitlement);
+    await refreshVipEntitlement(true).catch(() => null);
+  }, delay);
+  vipExpiryTimer?.unref?.();
+}
+
+async function storeVipEntitlement(entitlement) {
+  const value = normalizeVipEntitlement(entitlement);
   const current = (await localGet("vipEntitlement")).vipEntitlement;
   const changed = !current
     || current.authenticated !== value.authenticated
     || current.vipActive !== value.vipActive
+    || current.paidVipActive !== value.paidVipActive
+    || current.trialActive !== value.trialActive
+    || current.trialUsed !== value.trialUsed
+    || current.trialStartedAt !== value.trialStartedAt
+    || current.trialExpiresAt !== value.trialExpiresAt
+    || current.accessSource !== value.accessSource
     || current.email !== value.email
     || current.displayName !== value.displayName
     || current.plan !== value.plan;
   if (changed || current.checkedAt !== value.checkedAt) await chrome.storage.local.set({ vipEntitlement: value });
   if (value.vipActive) await initializeVipDefaults();
+  scheduleVipExpiry(value);
+  if (!value.vipActive) {
+    await storeCloudSyncState({ enabled: false, pending: false, conflict: false, status: "locked", lastError: "VIP 試用或授權目前未啟用" });
+  }
   if (current?.authenticated && (!value.authenticated || (current.email && value.email && current.email !== value.email))) {
     await storeCloudSyncState({
       enabled: false, revision: 0, pending: false, conflict: false,
@@ -122,8 +178,15 @@ async function refreshVipEntitlement(force = false) {
     if (stored.vipEntitlement?.authenticated === false && stored.vipEntitlement?.vipActive === false) return stored.vipEntitlement;
     return storeVipEntitlement({ authenticated: false, vipActive: false });
   }
-  const checkedAt = Date.parse(stored.vipEntitlement?.checkedAt || "");
-  if (!force && Number.isFinite(checkedAt) && Date.now() - checkedAt < 15 * 60 * 1000) return stored.vipEntitlement;
+  const normalizedStored = normalizeVipEntitlement(stored.vipEntitlement || { authenticated: true, vipActive: false });
+  if (normalizedStored.vipActive !== stored.vipEntitlement?.vipActive
+    || normalizedStored.trialActive !== stored.vipEntitlement?.trialActive) {
+    await storeVipEntitlement(normalizedStored);
+  } else {
+    scheduleVipExpiry(normalizedStored);
+  }
+  const checkedAt = Date.parse(normalizedStored.checkedAt || "");
+  if (!force && Number.isFinite(checkedAt) && Date.now() - checkedAt < 15 * 60 * 1000) return normalizedStored;
   try {
     const response = await fetch(`${VIP_SITE}/api/extension/entitlement`, {
       headers: { authorization: `Bearer ${stored.vipAccessToken}` },
@@ -135,7 +198,7 @@ async function refreshVipEntitlement(force = false) {
     }
     return storeVipEntitlement(await response.json());
   } catch {
-    return stored.vipEntitlement || { authenticated: true, vipActive: false, checkedAt: "" };
+    return normalizeVipEntitlement(stored.vipEntitlement || { authenticated: true, vipActive: false, checkedAt: "" });
   }
 }
 
@@ -182,6 +245,7 @@ async function connectVipAccount() {
   const authorizeUrl = `${VIP_SITE}/extension/connect?redirect_uri=${encodeURIComponent(redirectUri)}`;
   const callbackUrl = new URL(await launchWebAuthFlow(authorizeUrl));
   const code = callbackUrl.searchParams.get("code");
+  const purchaseAfterConnect = callbackUrl.searchParams.get("purchase") === "1";
   if (!code) throw new Error("網站沒有回傳插件授權碼");
   const response = await fetch(`${VIP_SITE}/api/extension/token`, {
     method: "POST",
@@ -192,13 +256,15 @@ async function connectVipAccount() {
   if (!response.ok || !result.accessToken) throw new Error("無法完成插件授權");
   await chrome.storage.local.set({ vipAccessToken: result.accessToken });
   await chrome.storage.local.remove("vipAuthNotice");
-  return storeVipEntitlement({
+  const entitlement = await storeVipEntitlement({
     authenticated: true,
-    vipActive: result.account?.vipActive === true,
-    email: result.account?.email,
-    displayName: result.account?.displayName,
+    ...result.account,
     checkedAt: new Date().toISOString()
   });
+  if (purchaseAfterConnect && entitlement.paidVipActive !== true) {
+    await chrome.tabs.create({ url: `${VIP_SITE}/checkout` });
+  }
+  return entitlement;
 }
 
 async function disconnectVipAccount() {
@@ -269,7 +335,7 @@ async function storeLocalCloudData(data) {
 
 async function cloudSyncRequest(method, body) {
   const stored = await localGet(["vipAccessToken", "vipEntitlement"]);
-  if (!stored.vipAccessToken || stored.vipEntitlement?.vipActive !== true) {
+  if (!stored.vipAccessToken || !vipEntitlementActive(stored.vipEntitlement)) {
     const error = new Error("需要有效的 VIP 登入才能同步");
     error.code = "vip_required";
     throw error;
@@ -299,7 +365,7 @@ async function performCloudSync(mode = "auto") {
   const state = await getCloudSyncState();
   if (!state.enabled) return { state, data: await getLocalCloudData() };
   const entitlement = (await localGet("vipEntitlement")).vipEntitlement;
-  if (entitlement?.vipActive !== true) {
+  if (!vipEntitlementActive(entitlement)) {
     const locked = await storeCloudSyncState({ status: "locked", lastError: "VIP 尚未啟用" });
     return { state: locked, data: await getLocalCloudData() };
   }
@@ -392,7 +458,7 @@ async function setCloudSyncEnabled(enabled) {
     return { state, data: await getLocalCloudData() };
   }
   const entitlement = (await localGet("vipEntitlement")).vipEntitlement;
-  if (entitlement?.vipActive !== true) {
+  if (!vipEntitlementActive(entitlement)) {
     return { state: await storeCloudSyncState({ enabled: false, status: "locked", lastError: "VIP 尚未啟用" }) };
   }
   const localData = await getLocalCloudData();

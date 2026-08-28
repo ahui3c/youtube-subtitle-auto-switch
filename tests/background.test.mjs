@@ -15,6 +15,8 @@ let syncStorage = { settings: { enabled: true } };
 let googleReady = false;
 let cloudOffline = false;
 let entitlementResult = null;
+let extensionTokenResult = null;
+let oauthRedirectUrl = "";
 let cloudRemote = { revision: 0, updatedAt: "", customReplacements: [], channelRules: [] };
 
 globalThis.fetch = async (url, options = {}) => {
@@ -25,6 +27,10 @@ globalThis.fetch = async (url, options = {}) => {
     if (String(options.method || "GET").toUpperCase() === "POST") return { ok: true, async json() { return { ok: true }; } };
     if (!entitlementResult) return { ok: false, status: 401, async json() { return {}; } };
     return { ok: true, status: 200, async json() { return entitlementResult; } };
+  }
+  if (String(url).endsWith("/api/extension/token")) {
+    if (!extensionTokenResult) return { ok: false, status: 400, async json() { return {}; } };
+    return { ok: true, status: 200, async json() { return structuredClone(extensionTokenResult); } };
   }
   if (String(url).endsWith("/api/extension/sync")) {
     if (cloudOffline) throw new Error("offline");
@@ -110,8 +116,9 @@ globalThis.chrome = {
     getRedirectURL(path) {
       return `https://extension-id.chromiumapp.org/${path}`;
     },
-    launchWebAuthFlow() {
-      throw new Error("這個測試不應啟動 OAuth 視窗");
+    launchWebAuthFlow(options, callback) {
+      if (!oauthRedirectUrl) throw new Error("這個測試不應啟動 OAuth 視窗");
+      callback(oauthRedirectUrl);
     }
   },
   tabs: {
@@ -211,6 +218,67 @@ test("Google OAuth 尚未設定時會開啟會員中心並回傳明確訊息", a
   assert.match(response.message, /Google 登入服務尚未完成設定/);
   assert.equal(openedTabUrl, "https://myapp.ahui3c.com/account?source=extension&error=google_not_configured");
   assert.match(localStorage.vipAuthNotice.message, /已開啟會員中心/);
+});
+
+test("尚未購買 VIP 時連接會啟用 24 小時試用並可繼續前往購買頁", async () => {
+  googleReady = true;
+  openedTabUrl = "";
+  localStorage = {};
+  oauthRedirectUrl = "https://extension-id.chromiumapp.org/vip?code=connect-code&purchase=1";
+  extensionTokenResult = {
+    accessToken: "access-token",
+    account: {
+      vipActive: true,
+      paidVipActive: false,
+      trialActive: true,
+      trialUsed: true,
+      accessSource: "trial",
+      plan: "trial_24h",
+      trialStartedAt: new Date().toISOString(),
+      trialExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      email: "free@example.com",
+      displayName: "Free User"
+    }
+  };
+
+  const response = await sendMessage({ type: "ytlang:vip-login" });
+  assert.equal(response.ok, true);
+  assert.equal(response.entitlement.authenticated, true);
+  assert.equal(response.entitlement.vipActive, true);
+  assert.equal(response.entitlement.trialActive, true);
+  assert.equal(response.entitlement.paidVipActive, false);
+  assert.equal(localStorage.vipAccessToken, "access-token");
+  assert.equal(openedTabUrl, "https://myapp.ahui3c.com/checkout");
+
+  oauthRedirectUrl = "";
+  extensionTokenResult = null;
+});
+
+test("試用到期後即使收到舊的啟用旗標也會關閉 VIP", async () => {
+  localStorage = {
+    vipAccessToken: "expired-trial-token",
+    vipEntitlement: {
+      authenticated: true,
+      vipActive: true,
+      paidVipActive: false,
+      trialActive: true,
+      trialUsed: true,
+      accessSource: "trial",
+      plan: "trial_24h",
+      trialStartedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      trialExpiresAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      email: "trial@example.com",
+      checkedAt: new Date().toISOString()
+    }
+  };
+  entitlementResult = structuredClone(localStorage.vipEntitlement);
+
+  const response = await sendMessage({ type: "ytlang:vip-get-status", force: true });
+  assert.equal(response.entitlement.vipActive, false);
+  assert.equal(response.entitlement.trialActive, false);
+  assert.equal(response.entitlement.trialUsed, true);
+  assert.equal(localStorage.cloudSyncState.enabled, false);
+  assert.equal(localStorage.cloudSyncState.status, "locked");
 });
 
 test("首次取得 VIP 會套用三項指定預設值", async () => {

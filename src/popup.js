@@ -131,16 +131,23 @@
   function renderVipAccount() {
     const authenticated = vipEntitlement.authenticated === true;
     const active = vipEntitlement.vipActive === true;
+    const paid = vipEntitlement.paidVipActive === true || vipEntitlement.accessSource === "paid";
+    const trial = active && !paid && vipEntitlement.trialActive === true;
+    const trialUsed = vipEntitlement.trialUsed === true;
     vipAccount.classList.toggle("is-active", active);
-    vipAccountTitle.textContent = active
+    vipAccountTitle.textContent = paid
       ? "VIP 終身版已啟用"
+      : trial
+        ? "VIP 24 小時試用中"
       : authenticated
-        ? "已登入，尚未購買 VIP"
+        ? trialUsed ? "VIP 試用已結束" : "已登入，尚未開始試用"
         : "尚未登入";
-    vipAccountDetail.textContent = authenticated
-      ? (vipEntitlement.email || "Google 帳號已連接")
-      : "登入購買時使用的 Google 帳號以驗證 VIP";
-    vipLogin.textContent = active ? "VIP 已啟用" : authenticated ? "重新驗證" : "使用 Google 登入";
+    vipAccountDetail.textContent = trial
+      ? `試用至 ${new Date(vipEntitlement.trialExpiresAt).toLocaleString("zh-TW")}，到期後自動關閉 VIP 功能`
+      : authenticated
+        ? `${vipEntitlement.email || "Google 帳號已連接"}${trialUsed && vipEntitlement.trialExpiresAt ? ` · 已於 ${new Date(vipEntitlement.trialExpiresAt).toLocaleString("zh-TW")} 到期` : ""}`
+        : "每個 Google 帳號首次連接可試用全部 VIP 功能 24 小時";
+    vipLogin.textContent = paid ? "VIP 已啟用" : trial ? "試用中" : authenticated ? "重新驗證" : "登入並開始試用";
     vipLogin.disabled = active;
     vipLogout.hidden = !authenticated;
   }

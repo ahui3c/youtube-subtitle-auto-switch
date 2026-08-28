@@ -6,6 +6,7 @@
 
   let settings = Core.mergeSettings();
   let vipActive = false;
+  let vipExpiryTimer = 0;
   let playerData = null;
   let activePlan = null;
   let applyAttempts = 0;
@@ -75,6 +76,30 @@
     return new Promise((resolve) => chrome.storage[area].get(key, resolve));
   }
 
+  function applyVipEntitlement(entitlement) {
+    const trialExpiresAt = Date.parse(entitlement?.trialExpiresAt || "");
+    const paid = entitlement?.paidVipActive === true
+      || entitlement?.accessSource === "paid"
+      || (entitlement?.vipActive === true && !entitlement?.trialActive && !entitlement?.trialExpiresAt);
+    const trial = !paid
+      && (entitlement?.trialActive === true || entitlement?.accessSource === "trial" || entitlement?.plan === "trial_24h")
+      && Number.isFinite(trialExpiresAt)
+      && trialExpiresAt > Date.now();
+    vipActive = paid || trial;
+    if (vipExpiryTimer) window.clearTimeout(vipExpiryTimer);
+    vipExpiryTimer = 0;
+    if (trial) {
+      vipExpiryTimer = window.setTimeout(() => {
+        vipExpiryTimer = 0;
+        loadSettings().then(() => {
+          resetForVideo();
+          selectAndApply();
+        });
+      }, Math.max(0, Math.min(trialExpiresAt - Date.now() + 50, 2_147_000_000)));
+    }
+    return vipActive;
+  }
+
   async function loadSettings() {
     const [synced, local, vipResponse] = await Promise.all([
       storageGet("sync", "settings"),
@@ -86,9 +111,7 @@
       customReplacements: local.customReplacements || synced.settings?.customReplacements,
       channelRules: local.channelRules || synced.settings?.channelRules
     });
-    vipActive = vipResponse?.entitlement
-      ? vipResponse.entitlement.vipActive === true
-      : local.vipEntitlement?.vipActive === true;
+    applyVipEntitlement(vipResponse?.entitlement || local.vipEntitlement);
     settings = Core.enforceVipSettings(storedSettings, vipActive);
     if (synced.settings?.settingsVersion !== storedSettings.settingsVersion
       || synced.settings?.customReplacements
@@ -563,7 +586,7 @@
       return false;
     }
     if (message?.type === "ytlang:vip-status-updated") {
-      vipActive = message.entitlement?.vipActive === true;
+      applyVipEntitlement(message.entitlement);
       loadSettings().then(() => {
         resetForVideo();
         selectAndApply();

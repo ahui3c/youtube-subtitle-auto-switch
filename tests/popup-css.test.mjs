@@ -77,11 +77,11 @@ test("指定頻道規則只顯示四種新選項", () => {
   }
 });
 
-test("VIP 功能必須通過 Google 帳號授權才解除鎖定", () => {
+test("VIP 功能可由 24 小時試用或購買授權解除鎖定", () => {
   assert.match(html, /id="vip-login"/);
-  assert.match(html, /登入並購買 VIP 後即可使用地區用語轉換/);
-  assert.match(html, /登入並購買 VIP 後即可使用自訂詞彙替換/);
-  assert.match(html, /登入並購買 VIP 後即可使用指定頻道規則/);
+  assert.match(html, /登入可試用 VIP 24 小時；試用或購買生效後即可使用地區用語轉換/);
+  assert.match(html, /登入可試用 VIP 24 小時；試用或購買生效後即可使用自訂詞彙替換/);
+  assert.match(html, /登入可試用 VIP 24 小時；試用或購買生效後即可使用指定頻道規則/);
   assert.match(js, /vipEntitlement\.vipActive === true/);
   assert.match(css, /\.is-vip-locked/);
 });
