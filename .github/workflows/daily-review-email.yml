@@ -2,7 +2,10 @@ name: Daily order review email
 
 on:
   schedule:
-    - cron: "0 1 * * *"
+    # GitHub Actions 在整點較容易因尖峰而延遲或略過排程，因此錯開整點，
+    # 並在台灣時間 09:07～10:07 多次重試。網站端以日期 run_key 防止重複寄送。
+    - cron: "7,22,37,52 1 * * *"
+    - cron: "7 2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,6 +26,8 @@ jobs:
         run: |
           test -n "$DAILY_REVIEW_CRON_SECRET"
           curl --fail-with-body --retry 2 --retry-all-errors \
+            --connect-timeout 15 \
+            --max-time 90 \
             --request POST \
             --header "Authorization: Bearer $DAILY_REVIEW_CRON_SECRET" \
             --header "Content-Type: application/json" \
