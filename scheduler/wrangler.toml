@@ -7,3 +7,7 @@ workers_dev = false
 # Cloudflare 排程使用 UTC：09:07 與 10:07（台灣時間）各嘗試一次。
 # 網站端以每日 run_key 保證同一天只寄一封。
 crons = ["7 1 * * *", "7 2 * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
