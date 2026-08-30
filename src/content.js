@@ -27,7 +27,12 @@
   let lastSavedStatusJson = "";
   let extensionContextActive = true;
   let runtimeMessageListenerRegistered = false;
+  let layoutObserver = null;
+  let observedLayoutVideo = null;
+  let layoutChangedAt = 0;
+  let layoutRetryTimer = 0;
   const scheduledTimers = new Set();
+  const LAYOUT_STABILIZATION_MS = 450;
 
   function extensionContextAvailable() {
     if (!extensionContextActive) return false;
@@ -44,13 +49,13 @@
 
   function clearScheduledTimer(timerId) {
     if (!timerId) return;
-    window.clearTimeout(timerId);
+    globalThis.clearTimeout(timerId);
     scheduledTimers.delete(timerId);
   }
 
   function schedule(callback, delay) {
     if (!ensureExtensionContext()) return 0;
-    const timerId = window.setTimeout(() => {
+    const timerId = globalThis.setTimeout(() => {
       scheduledTimers.delete(timerId);
       if (!ensureExtensionContext()) return;
       callback();
@@ -66,7 +71,7 @@
     captureArmed = false;
     pendingCue = null;
     activeCueKey = "";
-    for (const timerId of scheduledTimers) window.clearTimeout(timerId);
+    for (const timerId of scheduledTimers) globalThis.clearTimeout(timerId);
     scheduledTimers.clear();
     vipExpiryTimer = 0;
     observerStartTimer = 0;
@@ -75,6 +80,13 @@
     document.removeEventListener("ytlang:player-data", handlePlayerData);
     document.removeEventListener("ytlang:apply-result", handleApplyResult);
     document.removeEventListener("visibilitychange", syncCaptionMonitoring);
+    document.removeEventListener("fullscreenchange", handleVisualLayoutChange);
+    document.removeEventListener("webkitfullscreenchange", handleVisualLayoutChange);
+    globalThis.removeEventListener?.("resize", handleVisualLayoutChange);
+    layoutObserver?.disconnect();
+    layoutObserver = null;
+    observedLayoutVideo = null;
+    layoutRetryTimer = 0;
     document.querySelectorAll(".ytlang-toast").forEach((toast) => toast.remove());
     if (runtimeMessageListenerRegistered) {
       try {
@@ -295,6 +307,9 @@
       detectionComplete: detection.complete,
       embeddedDetected: detection.detected,
       detectionSkipReason: detection.skipReason,
+      captureGeneration,
+      layoutStable: Date.now() - layoutChangedAt >= LAYOUT_STABILIZATION_MS,
+      fullscreen: isFullscreenLayout(),
       lastDetectionScore: detection.lastAnalysis ? Math.round(detection.lastAnalysis.score * 100) : null,
       lastDetectionBand: detection.lastAnalysis ? Math.round(detection.lastAnalysis.bandCenter * 100) : null,
       ...extra
@@ -340,6 +355,13 @@
     if (channelRule?.mode === "disabled") {
       activePlan = { type: "channel-disabled", reason: "channel-rule-disabled" };
       syncCaptionMonitoring();
+      saveStatus();
+      return;
+    }
+    if (settings.enabled && Core.channelForcesCaptionDisable(channelRule?.mode)) {
+      activePlan = { type: "channel-force-disable", reason: "channel-rule-force-disable" };
+      syncCaptionMonitoring();
+      document.dispatchEvent(new CustomEvent("ytlang:disable-captions"));
       saveStatus();
       return;
     }
@@ -389,6 +411,7 @@
     if (!next?.videoId) return;
     if (playerData?.videoId !== next.videoId) resetForVideo();
     playerData = next;
+    syncLayoutObserver();
     refreshCaptureState();
     selectAndApply();
   }
@@ -497,6 +520,63 @@
     return document.querySelector("video.html5-main-video, video");
   }
 
+  function isFullscreenLayout() {
+    return Boolean(
+      document.fullscreenElement
+      || document.webkitFullscreenElement
+      || playerElement()?.classList?.contains("ytp-fullscreen")
+    );
+  }
+
+  function captureGeometry(video = videoElement()) {
+    if (!video) return null;
+    const rect = video.getBoundingClientRect();
+    if (rect.width < 100 || rect.height < 80) return null;
+    return {
+      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+      devicePixelRatio,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      fullscreen: isFullscreenLayout()
+    };
+  }
+
+  function layoutIsStable() {
+    return Date.now() - layoutChangedAt >= LAYOUT_STABILIZATION_MS;
+  }
+
+  function requeueCurrentCueAfterLayoutChange() {
+    layoutRetryTimer = 0;
+    if (!ensureExtensionContext() || !captureArmed || detection.complete || !layoutIsStable()) return;
+    const normalized = Core.normalizeCueText(lastCue);
+    if (!Core.isUsefulCue(normalized)) return;
+    activeCueKey = normalized.toLocaleLowerCase().slice(0, 80);
+    queueEmbeddedSample(activeCueKey);
+  }
+
+  function handleVisualLayoutChange() {
+    if (!ensureExtensionContext()) return;
+    captureGeneration += 1;
+    pendingCue = null;
+    layoutChangedAt = Date.now();
+    if (layoutRetryTimer) clearScheduledTimer(layoutRetryTimer);
+    layoutRetryTimer = schedule(requeueCurrentCueAfterLayoutChange, LAYOUT_STABILIZATION_MS + 80);
+    saveStatus({ capturePausedReason: "video-layout-changing" });
+  }
+
+  function syncLayoutObserver() {
+    if (!globalThis.ResizeObserver) return;
+    const video = videoElement();
+    if (video === observedLayoutVideo) return;
+    layoutObserver?.disconnect();
+    observedLayoutVideo = video;
+    if (!video) return;
+    layoutObserver ||= new ResizeObserver(handleVisualLayoutChange);
+    layoutObserver.observe(video);
+  }
+
   function sendCaptureRequest(rect) {
     return runtimeSendMessage({
         type: "ytlang:capture-frame",
@@ -519,11 +599,11 @@
     return Core.captionMaskRegions(videoRect, rects);
   }
 
-  function analyzeVideoFrame(video) {
+  function analyzeVideoFrame(video, fullscreen = false) {
     if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
     const sourceY = Math.round(video.videoHeight * 0.45);
     const sourceHeight = video.videoHeight - sourceY;
-    const width = Math.min(720, Math.max(180, video.videoWidth));
+    const width = Core.embeddedAnalysisWidth(video.videoWidth, fullscreen);
     const height = Math.max(54, Math.round(sourceHeight * (width / video.videoWidth)));
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -534,18 +614,19 @@
     return Core.analyzeBottomTextBand(pixels, width, height);
   }
 
-  async function analyzeScreenshot(dataUrl, rect, masks) {
+  async function analyzeScreenshot(dataUrl, geometry, masks) {
     const image = new Image();
     image.src = dataUrl;
     await image.decode();
 
-    const scaleX = image.naturalWidth / innerWidth;
-    const scaleY = image.naturalHeight / innerHeight;
+    const { rect } = geometry;
+    const scaleX = image.naturalWidth / geometry.viewportWidth;
+    const scaleY = image.naturalHeight / geometry.viewportHeight;
     const sourceX = Math.max(0, Math.round(rect.x * scaleX));
     const sourceWidth = Math.min(image.naturalWidth - sourceX, Math.round(rect.width * scaleX));
     const sourceHeight = Math.round(rect.height * scaleY * 0.55);
     const sourceY = Math.max(0, Math.round((rect.y + rect.height * 0.45) * scaleY));
-    const width = Math.min(720, Math.max(180, sourceWidth));
+    const width = Core.embeddedAnalysisWidth(sourceWidth, geometry.fullscreen);
     const height = Math.max(54, Math.round(sourceHeight * (width / sourceWidth)));
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -565,21 +646,25 @@
 
   async function captureAndAnalyze() {
     if (!ensureExtensionContext()) return null;
-    const rect = videoRect();
     const video = videoElement();
-    if (!rect || !video) return null;
+    const before = captureGeometry(video);
+    if (!before || !video || !layoutIsStable()) return null;
 
     try {
-      const result = analyzeVideoFrame(video);
-      if (result) return result;
+      const result = analyzeVideoFrame(video, before.fullscreen);
+      const after = captureGeometry(video);
+      if (result && Core.captureGeometryMatches(before, after)) return result;
     } catch {}
 
-    const response = await sendCaptureRequest(rect);
+    const masks = captionMaskRects(before.rect);
+    const response = await sendCaptureRequest(before.rect);
     if (!response?.ok || !response.dataUrl) {
       saveStatus({ captureError: response?.reason || "capture-unavailable" });
       return null;
     }
-    return analyzeScreenshot(response.dataUrl, rect, captionMaskRects(rect));
+    const after = captureGeometry(video);
+    if (!layoutIsStable() || !Core.captureGeometryMatches(before, after)) return null;
+    return analyzeScreenshot(response.dataUrl, before, masks);
   }
 
   function delay(milliseconds) {
@@ -715,6 +800,9 @@
   }
 
   document.addEventListener("visibilitychange", syncCaptionMonitoring);
+  document.addEventListener("fullscreenchange", handleVisualLayoutChange);
+  document.addEventListener("webkitfullscreenchange", handleVisualLayoutChange);
+  globalThis.addEventListener?.("resize", handleVisualLayoutChange, { passive: true });
 
   function showToast(message, offerUndo = false) {
     const player = playerElement();

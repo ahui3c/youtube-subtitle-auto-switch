@@ -17,13 +17,14 @@
   const CHANNEL_RULE_MODES = Object.freeze([
     "disabled",
     "force-enable-no-ocr",
+    "force-disable-no-ocr",
     "force-enable-convert",
     "force-enable-convert-hk"
   ]);
   const LEGACY_CHANNEL_RULE_MODES = Object.freeze({
     "skip-ocr": "force-enable-no-ocr",
     "force-ocr": "force-enable-no-ocr",
-    "force-disable-no-ocr": "disabled"
+    "force-disable-no-ocr": "force-disable-no-ocr"
   });
   const CHANNEL_FORCE_ENABLE_MODES = new Set([
     "force-enable-no-ocr",
@@ -37,6 +38,8 @@
   const MAX_CUSTOM_REPLACEMENTS = 100;
   const MAX_CHANNEL_RULES = 50;
   const MIN_EMBEDDED_SUBTITLE_BAND_CENTER = 0.45;
+  const NORMAL_EMBEDDED_ANALYSIS_WIDTH = 720;
+  const FULLSCREEN_EMBEDDED_ANALYSIS_WIDTH = 1080;
 
   // Curated conservative mappings only. Ambiguous single-character replacements
   // are deliberately excluded because they can corrupt names and formal Chinese.
@@ -272,6 +275,10 @@
     return CHANNEL_FORCE_ENABLE_MODES.has(String(mode || ""));
   }
 
+  function channelForcesCaptionDisable(mode) {
+    return String(mode || "") === "force-disable-no-ocr";
+  }
+
   function channelForcesLocalConversion(mode) {
     return CHANNEL_FORCE_CONVERSION_MODES.has(String(mode || ""));
   }
@@ -319,7 +326,7 @@
       || (!state.hasCaptionTracks && !state.hasRenderedCaptionCue)) {
       return false;
     }
-    if (state.planType === "channel-disabled") return false;
+    if (state.planType === "channel-disabled" || state.planType === "channel-force-disable") return false;
     const needsLocalConversion = isLocalTextConversionEnabled(settings, state.channelRuleMode);
     const needsEmbeddedDetection = state.captureArmed === true && state.detectionComplete !== true;
     return needsLocalConversion || needsEmbeddedDetection;
@@ -414,6 +421,7 @@
     const channelRule = settings.channelRules.find((rule) => rule.channelId === channelId);
     if (channelRule?.mode === "disabled") return "channel-disabled";
     if (channelRule?.mode === "force-enable-no-ocr") return "channel-force-enable-no-ocr";
+    if (channelRule?.mode === "force-disable-no-ocr") return "channel-force-disable-no-ocr";
     if (channelRule?.mode === "force-enable-convert") return "channel-force-enable-convert-no-ocr";
     if (channelRule?.mode === "force-enable-convert-hk") return "channel-force-enable-convert-hk-no-ocr";
     if (!settings.embeddedDetection) return "";
@@ -646,12 +654,43 @@
     };
   }
 
+  function embeddedAnalysisWidth(sourceWidth, fullscreen = false) {
+    const numericWidth = Number(sourceWidth);
+    const availableWidth = Number.isFinite(numericWidth) && numericWidth > 0
+      ? Math.round(numericWidth)
+      : 180;
+    const maximum = fullscreen
+      ? FULLSCREEN_EMBEDDED_ANALYSIS_WIDTH
+      : NORMAL_EMBEDDED_ANALYSIS_WIDTH;
+    return Math.min(maximum, Math.max(180, availableWidth));
+  }
+
+  function captureGeometryMatches(left, right, tolerance = 2) {
+    if (!left || !right || left.fullscreen !== right.fullscreen) return false;
+    const permittedDifference = Math.max(0, Number(tolerance) || 0);
+    const close = (first, second) => (
+      Number.isFinite(Number(first))
+      && Number.isFinite(Number(second))
+      && Math.abs(Number(first) - Number(second)) <= permittedDifference
+    );
+    return close(left.viewportWidth, right.viewportWidth)
+      && close(left.viewportHeight, right.viewportHeight)
+      && close(left.rect?.x, right.rect?.x)
+      && close(left.rect?.y, right.rect?.y)
+      && close(left.rect?.width, right.rect?.width)
+      && close(left.rect?.height, right.rect?.height)
+      && close(left.videoWidth, right.videoWidth)
+      && close(left.videoHeight, right.videoHeight);
+  }
+
   global.YTLangCore = Object.freeze({
     RULES,
     CHANNEL_RULE_MODES,
     MAX_CUSTOM_REPLACEMENTS,
     MAX_CHANNEL_RULES,
     MIN_EMBEDDED_SUBTITLE_BAND_CENTER,
+    NORMAL_EMBEDDED_ANALYSIS_WIDTH,
+    FULLSCREEN_EMBEDDED_ANALYSIS_WIDTH,
     HONG_KONG_COLLOQUIAL_RULES,
     DEFAULT_SETTINGS,
     normalizeLanguageCode,
@@ -666,6 +705,7 @@
     applyLiteralReplacements,
     applyHongKongColloquial,
     channelForcesCaptionEnable,
+    channelForcesCaptionDisable,
     channelForcesLocalConversion,
     channelForcesHongKongConversion,
     isLocalTextConversionEnabled,
@@ -683,6 +723,8 @@
     captionMaskRegions,
     maskPixelRegions,
     analyzeBottomTextBand,
-    evaluateEmbeddedSamples
+    evaluateEmbeddedSamples,
+    embeddedAnalysisWidth,
+    captureGeometryMatches
   });
 })(globalThis);

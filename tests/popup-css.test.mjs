@@ -42,6 +42,13 @@ test("圖形 OCR 模組位於字幕優先順序與全自動簡轉繁之間", () 
   assert.equal(html.match(/id="detector-title"/g)?.length, 1);
 });
 
+test("Safari Mac 會在 OCR 模組顯示實驗性說明", () => {
+  assert.match(html, /id="safari-detector-note"[^>]*hidden/);
+  assert.match(html, /Safari Mac 實驗性/);
+  assert.match(js, /safariDetectorNote\.hidden\s*=\s*!Platform\.isSafari/);
+  assert.match(css, /\.platform-note\s*\{/);
+});
+
 test("VIP 登入區塊位於免費功能之後與第一個 VIP 功能之前", () => {
   const conversionIndex = html.indexOf('id="conversion-title"');
   const accountIndex = html.indexOf('id="vip-account"');
@@ -81,16 +88,18 @@ test("一般 checked 樣式不會替中文範圍選項文字加上整片色塊",
   assert.match(css, /\.conversion-scope-option span\s*\{[^}]*background:\s*transparent;/s);
 });
 
-test("指定頻道規則只顯示四種新選項", () => {
+test("指定頻道規則依序顯示五種選項", () => {
   for (const label of [
     "停用全部功能",
     "強制開啟字幕",
+    "強制關閉字幕",
     "強制開啟字幕 \\+ 簡繁轉換",
     "強制開啟字幕 \\+ 簡繁粵語轉換"
   ]) assert.match(js, new RegExp(label));
   for (const oldLabel of ["略過 OCR 字幕辨識", "強制 OCR 字幕辨識", "強置關閉字幕"]) {
     assert.doesNotMatch(js, new RegExp(oldLabel));
   }
+  assert.ok(js.indexOf('"force-enable-no-ocr": "強制開啟字幕"') < js.indexOf('"force-disable-no-ocr": "強制關閉字幕"'));
 });
 
 test("VIP 功能可由 24 小時試用或購買授權解除鎖定", () => {

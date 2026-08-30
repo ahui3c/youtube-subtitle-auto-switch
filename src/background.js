@@ -1,5 +1,16 @@
 "use strict";
 
+if (typeof importScripts === "function") {
+  try { importScripts("platform.js"); } catch {}
+}
+const Platform = globalThis.YTLangPlatform || {
+  isSafari: false,
+  capabilities: {
+    embeddedSubtitleDetection: { available: typeof globalThis.chrome?.tabs?.captureVisibleTab === "function", experimental: false },
+    extensionIdentity: { available: typeof globalThis.chrome?.identity?.launchWebAuthFlow === "function" }
+  }
+};
+
 const ACTION_ICON_SIZES = [16, 32, 48, 128];
 const VIP_SITE = "https://myapp.ahui3c.com";
 const VIP_AUTH_STATUS_URL = `${VIP_SITE}/api/auth/status`;
@@ -305,6 +316,14 @@ async function storeVipAuthNotice(message) {
 }
 
 async function connectVipAccount() {
+  if (Platform.capabilities.extensionIdentity?.available !== true) {
+    const message = Platform.isSafari
+      ? "Safari Mac 的帳號連接仍需在 Mac／Xcode 完成驗證，已開啟會員中心。"
+      : "目前瀏覽器不支援插件帳號連接，已開啟會員中心。";
+    await storeVipAuthNotice(message);
+    await chrome.tabs.create({ url: `${VIP_SITE}/account?source=${Platform.isSafari ? "safari-extension" : "extension"}` });
+    throw new Error(message);
+  }
   const googleReady = await checkGoogleAuthReady();
   if (googleReady === false) {
     const message = "Google 登入服務尚未完成設定，已開啟會員中心說明。";
@@ -722,6 +741,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type !== "ytlang:capture-frame") return false;
 
+  if (Platform.capabilities.embeddedSubtitleDetection?.available !== true) {
+    sendResponse({ ok: false, reason: "capture-unavailable", experimental: Platform.isSafari });
+    return false;
+  }
+
   const tabId = sender.tab?.id;
   if (!Number.isInteger(tabId)) {
     sendResponse({ ok: false, reason: "capture-unavailable" });
@@ -736,7 +760,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return null;
       }
       return chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" })
-        .then((dataUrl) => sendResponse({ ok: true, dataUrl }));
+        .then((dataUrl) => sendResponse(Platform.isSafari
+          ? { ok: true, dataUrl, experimental: true }
+          : { ok: true, dataUrl }));
     })
     .catch((error) => sendResponse({ ok: false, reason: "capture-failed", message: error.message }));
   return true;

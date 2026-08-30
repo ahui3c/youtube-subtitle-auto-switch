@@ -2,6 +2,7 @@
   "use strict";
 
   const Core = globalThis.YTLangCore;
+  const Platform = globalThis.YTLangPlatform || { isSafari: false, target: "chrome", capabilities: {} };
   const enabled = document.getElementById("enabled");
   const embeddedDetection = document.getElementById("embeddedDetection");
   const skipEmbeddedDetectionForSimplifiedOnly = document.getElementById("skipEmbeddedDetectionForSimplifiedOnly");
@@ -10,6 +11,7 @@
   const routeStatus = document.getElementById("route-status");
   const routeDetail = document.getElementById("route-detail");
   const detectorStatus = document.getElementById("detector-status");
+  const safariDetectorNote = document.getElementById("safari-detector-note");
   const simplifiedHint = document.getElementById("simplified-hint");
   const trackCount = document.getElementById("track-count");
   const taiwanTermsEnabled = document.getElementById("taiwanTermsEnabled");
@@ -44,6 +46,7 @@
   const CHANNEL_MODE_LABELS = Object.freeze({
     disabled: "停用全部功能",
     "force-enable-no-ocr": "強制開啟字幕",
+    "force-disable-no-ocr": "強制關閉字幕",
     "force-enable-convert": "強制開啟字幕 + 簡繁轉換",
     "force-enable-convert-hk": "強制開啟字幕 + 簡繁粵語轉換"
   });
@@ -54,6 +57,9 @@
   let currentStatus = null;
   let vipEntitlement = { authenticated: false, vipActive: false, email: "", displayName: "" };
   let cloudSyncState = { enabled: false, revision: 0, pending: false, conflict: false, status: "disabled", lastError: "" };
+
+  document.documentElement.dataset.platform = Platform.target;
+  if (safariDetectorNote) safariDetectorNote.hidden = !Platform.isSafari;
 
   function getSync(key) {
     return new Promise((resolve) => chrome.storage.sync.get(key, resolve));
@@ -473,6 +479,7 @@
       toggle: "已開啟 YouTube 可用字幕",
       "channel-disabled": "此頻道已停用自動功能",
       "channel-force-enable": "頻道規則：強制開啟字幕",
+      "channel-force-disable": "頻道規則：強制關閉字幕",
       none: "找不到可用字幕"
     };
     routeStatus.textContent = status.sourceName || planLabels[status.planType] || "字幕規則已就緒";
@@ -482,6 +489,8 @@
       detectorStatus.textContent = "頻道規則 · 已停用全部自動功能";
     } else if (status.detectionSkipReason === "channel-force-enable-no-ocr") {
       detectorStatus.textContent = "頻道規則 · 強制開啟 CC 字幕，不進行 OCR";
+    } else if (status.detectionSkipReason === "channel-force-disable-no-ocr") {
+      detectorStatus.textContent = "頻道規則 · 強制關閉 CC 字幕，不進行 OCR";
     } else if (status.detectionSkipReason === "channel-force-enable-convert-no-ocr") {
       detectorStatus.textContent = "頻道規則 · 強制開啟 CC 字幕並進行簡繁轉換";
     } else if (status.detectionSkipReason === "channel-force-enable-convert-hk-no-ocr") {

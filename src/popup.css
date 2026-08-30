@@ -167,6 +167,17 @@ h2 { font-size: 16px; margin: 0; }
 }
 
 .compact { padding: var(--compact-card-padding); }
+.platform-note {
+  background: rgba(255, 209, 102, .1);
+  border: 1px solid rgba(255, 209, 102, .35);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+  margin: 10px 0;
+  padding: 9px 10px;
+}
+.platform-note strong { color: var(--caption); }
 .count { color: var(--muted); font: 700 11px/1 Consolas, monospace; }
 
 .track-list { display: grid; gap: 5px; list-style: none; margin: 13px 0 0; padding: 0; }

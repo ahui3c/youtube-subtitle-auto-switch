@@ -91,6 +91,7 @@ test("指定頻道規則會保留頻道識別並排除重複或無效資料", ()
   assert.deepEqual(Core.CHANNEL_RULE_MODES, [
     "disabled",
     "force-enable-no-ocr",
+    "force-disable-no-ocr",
     "force-enable-convert",
     "force-enable-convert-hk"
   ]);
@@ -115,7 +116,7 @@ test("指定頻道會使用穩定的 channelId 比對規則", () => {
   assert.equal(rule.mode, "disabled");
 });
 
-test("指定頻道可停用全部或以三種強制模式略過 OCR", () => {
+test("指定頻道可停用全部或以四種強制模式略過 OCR", () => {
   const playerData = {
     channelId: "UC-ONE",
     captionTracks: [{ languageCode: "zh-TW", name: "中文（繁體）" }]
@@ -128,6 +129,10 @@ test("指定頻道可停用全部或以三種強制模式略過 OCR", () => {
     embeddedDetection: true,
     channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-no-ocr" }]
   }), "channel-force-enable-no-ocr");
+  assert.equal(Core.embeddedDetectionSkipReason(playerData, {
+    embeddedDetection: true,
+    channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-disable-no-ocr" }]
+  }), "channel-force-disable-no-ocr");
   assert.equal(Core.embeddedDetectionSkipReason(playerData, {
     embeddedDetection: true,
     channelRules: [{ channelId: "UC-ONE", channelName: "頻道一", mode: "force-enable-convert" }]
@@ -404,6 +409,7 @@ test("字幕監聽會依背景、CC、OCR 與總開關自動停止", () => {
     detectionComplete: true
   }), true);
   assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, planType: "channel-disabled" }), false);
+  assert.equal(Core.shouldMonitorCaptions(localMode, { ...active, planType: "channel-force-disable" }), false);
 });
 
 test("香港常見口語可轉為普通話且較長詞優先", () => {
@@ -734,4 +740,35 @@ test("CC 遮罩過大時不會破壞 OCR 分析區域", () => {
   Core.maskPixelRegions(pixels, width, height, regions);
   assert.deepEqual(regions, []);
   assert.deepEqual(pixels, before);
+});
+
+test("全螢幕 OCR 保留較高分析解析度且不超過來源尺寸", () => {
+  assert.equal(Core.embeddedAnalysisWidth(3840, false), 720);
+  assert.equal(Core.embeddedAnalysisWidth(3840, true), 1080);
+  assert.equal(Core.embeddedAnalysisWidth(640, true), 640);
+  assert.equal(Core.embeddedAnalysisWidth(0, true), 180);
+});
+
+test("OCR 非同步截圖只接受仍相同的全螢幕與影片幾何", () => {
+  const geometry = {
+    rect: { x: 0, y: 0, width: 1920, height: 1080 },
+    viewportWidth: 1920,
+    viewportHeight: 1080,
+    videoWidth: 3840,
+    videoHeight: 2160,
+    fullscreen: true
+  };
+  assert.equal(Core.captureGeometryMatches(geometry, {
+    ...geometry,
+    rect: { ...geometry.rect, width: 1919.5 }
+  }), true);
+  assert.equal(Core.captureGeometryMatches(geometry, {
+    ...geometry,
+    fullscreen: false
+  }), false);
+  assert.equal(Core.captureGeometryMatches(geometry, {
+    ...geometry,
+    viewportWidth: 1536,
+    rect: { ...geometry.rect, width: 1536 }
+  }), false);
 });

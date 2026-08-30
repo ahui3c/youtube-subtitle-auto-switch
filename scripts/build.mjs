@@ -3,7 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dist = path.join(root, "dist");
+const targetArg = process.argv.find((value) => value.startsWith("--target="));
+const target = targetArg?.split("=")[1] || "chrome";
+if (!["chrome", "safari"].includes(target)) throw new Error(`不支援的建置目標：${target}`);
+const dist = path.join(root, target === "chrome" ? "dist" : "dist-safari");
+const manifestSource = target === "chrome" ? "manifest.json" : "manifest.safari.json";
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, "src"), { recursive: true });
@@ -11,18 +15,20 @@ await mkdir(path.join(dist, "vendor"), { recursive: true });
 await cp(path.join(root, "icons"), path.join(dist, "icons"), { recursive: true });
 
 const files = [
-  "manifest.json",
   "THIRD_PARTY_NOTICES.md",
   "src/background.js",
   "src/content.css",
   "src/content.js",
   "src/core.js",
   "src/page-bridge.js",
+  "src/platform.js",
   "src/preview-shim.js",
   "src/popup.css",
   "src/popup.html",
   "src/popup.js"
 ];
+
+await cp(path.join(root, manifestSource), path.join(dist, "manifest.json"));
 
 for (const file of files) {
   const target = path.join(dist, file);
@@ -54,4 +60,4 @@ await cp(
 const manifest = JSON.parse(await readFile(path.join(dist, "manifest.json"), "utf8"));
 await writeFile(path.join(dist, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-console.log(`Built extension: ${dist}`);
+console.log(`Built ${target} extension: ${dist}`);

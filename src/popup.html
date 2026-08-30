@@ -51,6 +51,7 @@
           <span aria-hidden="true"></span>
         </label>
       </div>
+      <p id="safari-detector-note" class="platform-note" hidden><strong>Safari Mac 實驗性</strong>：畫面擷取結果可能受分頁權限、Safari 版本與播放器顯示方式影響；不影響一般字幕選擇及簡繁轉換。</p>
       <p class="hint">只在 CC 出現有效文字時取樣。功能開啟後會自動擷取目前正在播放的 YouTube 分頁，不必開啟此面板。</p>
       <div class="option-row detector-option">
         <div><strong>簡體 CC 時略過偵測</strong><small>有簡體、沒有繁體字幕時不執行 OCR；字幕轉換與替換仍正常運作</small></div>
@@ -202,6 +203,7 @@
     </footer>
   </main>
   <script src="preview-shim.js"></script>
+  <script src="platform.js"></script>
   <script src="core.js"></script>
   <script src="popup.js"></script>
 </body>

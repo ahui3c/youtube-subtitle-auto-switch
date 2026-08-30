@@ -207,6 +207,32 @@ test("強制開啟字幕不啟動 OCR 且不改變原有字幕計畫", async () 
   assert.equal(enableCaptionEvents, enablesBeforeFallback + 1);
 });
 
+test("強制關閉字幕會關閉 CC 並完全略過 OCR 與字幕監聽", async () => {
+  await settle();
+  emit("ytlang:player-data", testPlayerData());
+  const disablesBefore = disableCaptionEvents;
+  let response;
+
+  runtimeMessageListener({
+    type: "ytlang:settings-updated",
+    settings: {
+      ...storedSettings,
+      enabled: true,
+      embeddedDetection: true,
+      channelRules: [{
+        channelId: "channel-1",
+        channelName: "測試頻道",
+        mode: "force-disable-no-ocr"
+      }]
+    }
+  }, {}, (result) => { response = result; });
+
+  assert.equal(response.status.planType, "channel-force-disable");
+  assert.equal(response.status.captureArmed, false);
+  assert.equal(response.status.detectionSkipReason, "channel-force-disable-no-ocr");
+  assert.equal(disableCaptionEvents, disablesBefore + 1);
+});
+
 test("強制簡繁轉換會處理任何語言字幕並套用已啟用的台灣及自訂用語", async () => {
   await settle();
   segment.textContent = "软件保存的信息";
@@ -332,6 +358,19 @@ test("未購買 VIP 時舊設定即使全部開啟也不會執行付費功能", 
   assert.equal(segment.textContent, "我哋软件保存的信息");
 });
 
+test("全螢幕切換會立即作廢舊 OCR 取樣並進入短暫穩定等待", () => {
+  let before;
+  runtimeMessageListener({ type: "ytlang:get-status" }, {}, (response) => { before = response.status; });
+  emit("fullscreenchange");
+  let after;
+  runtimeMessageListener({ type: "ytlang:get-status" }, {}, (response) => { after = response.status; });
+
+  assert.equal((listeners.get("fullscreenchange") || []).length, 1);
+  assert.equal((listeners.get("webkitfullscreenchange") || []).length, 1);
+  assert.equal(after.captureGeneration, before.captureGeneration + 1);
+  assert.equal(after.layoutStable, false);
+});
+
 test("擴充功能環境失效後會停止舊內容腳本並忽略後續 Chrome API 呼叫", async () => {
   document.visibilityState = "visible";
   runtimeMessageListener({
@@ -360,4 +399,6 @@ test("擴充功能環境失效後會停止舊內容腳本並忽略後續 Chrome 
   assert.equal((listeners.get("ytlang:player-data") || []).length, 0);
   assert.equal((listeners.get("ytlang:apply-result") || []).length, 0);
   assert.equal((listeners.get("visibilitychange") || []).length, 0);
+  assert.equal((listeners.get("fullscreenchange") || []).length, 0);
+  assert.equal((listeners.get("webkitfullscreenchange") || []).length, 0);
 });

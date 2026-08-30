@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Youtube 字幕全自動開關",
   "version": "0.4.1",
-  "description": "依偏好自動選擇 YouTube 字幕，轉換台灣與香港用語，並可實驗性偵測影片內嵌字幕。",
+  "description": "依偏好自動選擇 YouTube 字幕，轉換台灣與香港用語；Safari Mac 版的內嵌字幕偵測為實驗性功能。",
   "permissions": [
     "activeTab",
     "identity",
@@ -56,5 +56,9 @@
       "run_at": "document_start"
     }
   ],
-  "minimum_chrome_version": "111"
+  "browser_specific_settings": {
+    "safari": {
+      "strict_min_version": "16.0"
+    }
+  }
 }

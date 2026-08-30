@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+dist-safari/
 release/
 youtube-subtitle-auto-switch-privacy/
 scripts/generate-store-assets.mjs
