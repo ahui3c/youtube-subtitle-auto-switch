@@ -1,0 +1,9 @@
+name = "ytlang-daily-review-scheduler"
+main = "src/index.js"
+compatibility_date = "2026-05-22"
+workers_dev = false
+
+[triggers]
+# Cloudflare 排程使用 UTC：09:07 與 10:07（台灣時間）各嘗試一次。
+# 網站端以每日 run_key 保證同一天只寄一封。
+crons = ["7 1 * * *", "7 2 * * *"]

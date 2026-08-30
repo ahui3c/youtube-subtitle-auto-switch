@@ -1,0 +1,13 @@
+{
+  "name": "ytlang-daily-review-scheduler",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}
