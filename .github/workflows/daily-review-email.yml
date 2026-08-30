@@ -2,10 +2,11 @@ name: Daily order review email
 
 on:
   schedule:
-    # GitHub Actions 在整點較容易因尖峰而延遲或略過排程，因此錯開整點，
-    # 並在台灣時間 09:07～10:07 多次重試。網站端以日期 run_key 防止重複寄送。
-    - cron: "7,22,37,52 1 * * *"
-    - cron: "7 2 * * *"
+    # GitHub Actions 的排程可能延遲或被略過，因此在台灣時間 09:07～11:52
+    # 每 15 分鐘嘗試一次，並於 12:07～16:07 每小時補救一次。
+    # 網站端以日期 run_key 保證同一天只會寄出一封，不會因重試而重複寄送。
+    - cron: "7,22,37,52 1-3 * * *"
+    - cron: "7 4-8 * * *"
   workflow_dispatch:
 
 permissions:
