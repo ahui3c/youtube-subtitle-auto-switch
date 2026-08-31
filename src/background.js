@@ -31,6 +31,21 @@ const CHANNEL_RULE_MODES = new Set([
 let vipExpiryTimer = null;
 let vipRefreshPromise = null;
 
+function feedbackPageUrl(videoUrl) {
+  const url = new URL(`${VIP_SITE}/feedback`);
+  url.searchParams.set("source", "extension");
+  try {
+    const video = new URL(String(videoUrl || ""));
+    const hostname = video.hostname.toLowerCase();
+    const allowedHost = hostname === "youtu.be" || hostname === "youtube.com" || hostname.endsWith(".youtube.com");
+    if (video.protocol === "https:" && allowedHost) {
+      video.hash = "";
+      url.searchParams.set("video_url", video.toString().slice(0, 500));
+    }
+  } catch {}
+  return url.toString();
+}
+
 function localGet(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
 }
@@ -682,6 +697,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.create({ url: message.section === "cloud" ? `${VIP_SITE}/account#cloud-data` : `${VIP_SITE}/account` });
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (message?.type === "ytlang:open-feedback") {
+    chrome.tabs.create({ url: feedbackPageUrl(message.videoUrl) })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, message: error.message }));
+    return true;
   }
 
   if (message?.type === "ytlang:cloud-sync-status") {

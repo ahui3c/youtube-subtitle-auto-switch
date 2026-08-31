@@ -116,3 +116,11 @@ test("Google 登入按鍵會顯示啟動中與背景錯誤", () => {
   assert.match(js, /插件背景程序無法回應/);
   assert.match(js, /vipAuthNotice/);
 });
+
+test("插件提供登入後前往網站填寫的問題回報入口", () => {
+  assert.match(html, /id="open-feedback"/);
+  assert.match(html, /Bug、影片問題、新功能建議或其他意見/);
+  assert.match(js, /ytlang:open-feedback/);
+  assert.match(js, /videoUrl:\s*activeTab\?\.url/);
+  assert.match(css, /\.feedback-section\s*\{/);
+});

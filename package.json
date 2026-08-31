@@ -1,6 +1,6 @@
 {
   "name": "ytlang",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "YouTube 字幕語言優先選擇與內嵌字幕偵測 Chrome／Safari Mac 擴充功能",
   "scripts": {

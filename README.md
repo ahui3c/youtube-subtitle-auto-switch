@@ -19,6 +19,7 @@
 - VIP 在本機轉換模式支援最多 100 條自訂詞彙替換，可逐條啟用、停用、排序與刪除；使用 YouTube 翻譯時保留規則但不套用。
 - VIP 支援以穩定的 YouTube 頻道 ID 建立最多 50 條「指定頻道規則」，每個頻道可選擇「停用全部功能」、「強制開啟字幕」、「強制關閉字幕」、「強制開啟字幕 + 簡繁轉換」或「強制開啟字幕 + 簡繁粵語轉換」；強制模式都不進行 OCR，規則可保存在本機並選用 VIP 雲端同步。
 - VIP 終身版以 Google 帳號綁定身分；網站提供 Lemon Squeezy 線上付款、匯款後人工確認、會員訂單查詢與管理後台。插件登入購買時的同一帳號後驗證 VIP，目前暫不限制設備數量。
+- 插件提供「回報問題與意見」入口，可安全帶入目前 YouTube 影片網址並開啟網站表單；登入 Google 帳號後可回報 Bug、影片問題、新功能建議或其他意見，並在線查看處理狀態與管理員回覆。
 - 每一條字幕規則都能調整順序，並可個別啟用或停用。
 - 「英文字幕」、「自動產生的英文字幕」及「其他可翻譯語言字幕」預設停用，需要時才開啟。
 - 支援 YouTube 單頁式網站切換影片，不必重新載入擴充功能。
@@ -102,6 +103,7 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 - Uses YouTube translation to Traditional Chinese by default when only Simplified Chinese captions are available; local OpenCC conversion is also available.
 - VIP unlocks OpenCC Taiwan phrases, conservative Hong Kong colloquial replacements, up to 100 custom replacement rules, and up to 50 per-channel rules.
 - VIP identity is linked to a Google account. The website supports Lemon Squeezy checkout, manually verified bank transfers, account order history, and admin review. Device count is currently not limited.
+- Includes a feedback link that opens the signed-in website form, safely prefills the current YouTube URL, and lets users follow the processing status and latest administrator reply.
 - Every caption rule can be reordered or individually enabled and disabled.
 - Manual English, automatic English, and other translatable languages are disabled by default.
 - Supports YouTube's single-page navigation between videos.

@@ -440,3 +440,18 @@ test("本機與網站同時修改時不會靜默覆蓋並可選擇網站版本",
   assert.equal(resolved.state.revision, 2);
   assert.deepEqual(localStorage.customReplacements, cloudRemote.customReplacements);
 });
+
+test("問題回報入口只會帶入安全的 YouTube HTTPS 網址", async () => {
+  openedTabUrl = "";
+  const response = await sendMessage({ type: "ytlang:open-feedback", videoUrl: "https://www.youtube.com/watch?v=test#section" });
+  assert.equal(response.ok, true);
+  const safeUrl = new URL(openedTabUrl);
+  assert.equal(safeUrl.origin, "https://myapp.ahui3c.com");
+  assert.equal(safeUrl.pathname, "/feedback");
+  assert.equal(safeUrl.searchParams.get("source"), "extension");
+  assert.equal(safeUrl.searchParams.get("video_url"), "https://www.youtube.com/watch?v=test");
+
+  await sendMessage({ type: "ytlang:open-feedback", videoUrl: "https://example.com/steal" });
+  const rejectedUrl = new URL(openedTabUrl);
+  assert.equal(rejectedUrl.searchParams.has("video_url"), false);
+});

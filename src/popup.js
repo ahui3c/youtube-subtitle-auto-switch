@@ -43,6 +43,7 @@
   const cloudSyncUseLocal = document.getElementById("cloud-sync-use-local");
   const cloudSyncUseCloud = document.getElementById("cloud-sync-use-cloud");
   const cloudSyncManage = document.getElementById("cloud-sync-manage");
+  const openFeedback = document.getElementById("open-feedback");
   const CHANNEL_MODE_LABELS = Object.freeze({
     disabled: "停用全部功能",
     "force-enable-no-ocr": "強制開啟字幕",
@@ -661,6 +662,18 @@
   });
 
   cloudSyncManage.addEventListener("click", () => sendToRuntime({ type: "ytlang:vip-open-account", section: "cloud" }));
+
+  openFeedback.addEventListener("click", async () => {
+    openFeedback.disabled = true;
+    openFeedback.textContent = "正在開啟…";
+    const response = await sendToRuntime({ type: "ytlang:open-feedback", videoUrl: activeTab?.url || "" });
+    if (!response?.ok) {
+      openFeedback.disabled = false;
+      openFeedback.textContent = "無法開啟，請重試";
+      return;
+    }
+    window.close();
+  });
 
   vipLogout.addEventListener("click", async () => {
     const response = await sendToRuntime({ type: "ytlang:vip-logout" });
