@@ -25,6 +25,7 @@ const VIP_RETRY_MAX_MS = 60 * 60 * 1000;
 const CHANNEL_RULE_MODES = new Set([
   "disabled",
   "force-enable-no-ocr",
+  "force-disable-no-ocr",
   "force-enable-convert",
   "force-enable-convert-hk"
 ]);

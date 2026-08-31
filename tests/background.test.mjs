@@ -387,7 +387,7 @@ test("雲端同步預設關閉，啟用後會安全上傳本機資料", async ()
     vipAccessToken: "token",
     vipEntitlement: { authenticated: true, vipActive: true, email: "vip@example.com" },
     customReplacements: [{ from: "軟件", to: "軟體", enabled: true }],
-    channelRules: [{ channelId: "UC-1", channelName: "測試頻道", mode: "force-enable-no-ocr" }]
+    channelRules: [{ channelId: "UC-1", channelName: "測試頻道", mode: "force-disable-no-ocr" }]
   };
   cloudRemote = { revision: 0, updatedAt: "", customReplacements: [], channelRules: [] };
   cloudOffline = false;
@@ -399,6 +399,11 @@ test("雲端同步預設關閉，啟用後會安全上傳本機資料", async ()
   assert.equal(enabled.state.pending, false);
   assert.equal(cloudRemote.revision, 1);
   assert.deepEqual(cloudRemote.customReplacements, localStorage.customReplacements);
+  assert.deepEqual(cloudRemote.channelRules, [{
+    channelId: "UC-1",
+    channelName: "測試頻道",
+    mode: "force-disable-no-ocr"
+  }]);
 });
 
 test("離線時保留待同步狀態且不影響本機資料", async () => {
