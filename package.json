@@ -1,13 +1,14 @@
 {
   "name": "ytlang",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
-  "description": "YouTube 字幕語言優先選擇與內嵌字幕偵測 Chrome／Safari Mac 擴充功能",
+  "description": "YouTube 字幕語言優先選擇與內嵌字幕偵測 Chrome／Firefox／Safari Mac 擴充功能",
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:chrome": "node scripts/build.mjs --target=chrome",
+    "build:firefox": "node scripts/build.mjs --target=firefox",
     "build:safari": "node scripts/build.mjs --target=safari",
-    "build:all": "node scripts/build.mjs --target=chrome && node scripts/build.mjs --target=safari",
+    "build:all": "node scripts/build.mjs --target=chrome && node scripts/build.mjs --target=firefox && node scripts/build.mjs --target=safari",
     "test": "node --test tests/*.test.mjs",
     "check": "node --check src/core.js && node --check src/page-bridge.js && node --check src/content.js && node --check src/background.js && node --check src/popup.js"
   },

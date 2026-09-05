@@ -5,9 +5,14 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const targetArg = process.argv.find((value) => value.startsWith("--target="));
 const target = targetArg?.split("=")[1] || "chrome";
-if (!["chrome", "safari"].includes(target)) throw new Error(`不支援的建置目標：${target}`);
-const dist = path.join(root, target === "chrome" ? "dist" : "dist-safari");
-const manifestSource = target === "chrome" ? "manifest.json" : "manifest.safari.json";
+if (!["chrome", "firefox", "safari"].includes(target)) throw new Error(`不支援的建置目標：${target}`);
+const targetConfig = {
+  chrome: { dist: "dist", manifest: "manifest.json" },
+  firefox: { dist: "dist-firefox", manifest: "manifest.firefox.json" },
+  safari: { dist: "dist-safari", manifest: "manifest.safari.json" }
+}[target];
+const dist = path.join(root, targetConfig.dist);
+const manifestSource = targetConfig.manifest;
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, "src"), { recursive: true });
@@ -17,9 +22,11 @@ await cp(path.join(root, "icons"), path.join(dist, "icons"), { recursive: true }
 const files = [
   "THIRD_PARTY_NOTICES.md",
   "src/background.js",
+  "src/build-info.js",
   "src/content.css",
   "src/content.js",
   "src/core.js",
+  "src/instance-coordinator.js",
   "src/page-bridge.js",
   "src/platform.js",
   "src/preview-shim.js",
@@ -35,6 +42,16 @@ for (const file of files) {
   await mkdir(path.dirname(target), { recursive: true });
   await cp(path.join(root, file), target);
 }
+
+const distribution = {
+  chrome: "chrome-web-store",
+  firefox: "mozilla-add-ons",
+  safari: "safari-macos"
+}[target];
+await writeFile(
+  path.join(dist, "src/build-info.js"),
+  `(function initYTLangBuildInfo(global) {\n  "use strict";\n  global.YTLangBuildInfo = Object.freeze({ distribution: ${JSON.stringify(distribution)} });\n})(globalThis);\n`
+);
 
 const openccCandidates = [
   "node_modules/opencc-js/dist/umd/full.js",

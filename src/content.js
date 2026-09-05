@@ -3,6 +3,8 @@
 
   const Core = globalThis.YTLangCore;
   if (!Core) return;
+  const Platform = globalThis.YTLangPlatform || { target: "chrome" };
+  const InstanceCoordinator = globalThis.YTLangInstanceCoordinator || null;
 
   let settings = Core.mergeSettings();
   let vipActive = false;
@@ -26,6 +28,11 @@
   let openccLoadPromise = null;
   let lastSavedStatusJson = "";
   let extensionContextActive = true;
+  let instanceConflictActive = false;
+  let instanceConflictWinnerId = "";
+  let instanceConflictCheckTimer = 0;
+  let instanceMarker = null;
+  let instanceMarkerObserver = null;
   let runtimeMessageListenerRegistered = false;
   let layoutObserver = null;
   let observedLayoutVideo = null;
@@ -67,6 +74,12 @@
   function stopInvalidatedContentScript() {
     if (!extensionContextActive) return;
     extensionContextActive = false;
+    if (instanceConflictCheckTimer) globalThis.clearInterval(instanceConflictCheckTimer);
+    instanceConflictCheckTimer = 0;
+    instanceMarkerObserver?.disconnect();
+    instanceMarkerObserver = null;
+    instanceMarker?.remove();
+    instanceMarker = null;
     captureGeneration += 1;
     captureArmed = false;
     pendingCue = null;
@@ -97,9 +110,97 @@
   }
 
   function ensureExtensionContext() {
-    if (extensionContextAvailable()) return true;
+    if (extensionContextAvailable()) return !instanceConflictActive;
     stopInvalidatedContentScript();
     return false;
+  }
+
+  function suspendForInstanceConflict(conflict) {
+    if (instanceConflictActive) return;
+    instanceConflictActive = true;
+    instanceConflictWinnerId = String(conflict?.winnerExtensionId || "");
+    captureGeneration += 1;
+    captureArmed = false;
+    pendingCue = null;
+    activeCueKey = "";
+    for (const timerId of scheduledTimers) globalThis.clearTimeout(timerId);
+    scheduledTimers.clear();
+    vipExpiryTimer = 0;
+    observerStartTimer = 0;
+    if (observerActive) observer.disconnect();
+    observerActive = false;
+    document.removeEventListener("ytlang:player-data", handlePlayerData);
+    document.removeEventListener("ytlang:apply-result", handleApplyResult);
+    document.removeEventListener("visibilitychange", syncCaptionMonitoring);
+    document.removeEventListener("fullscreenchange", handleVisualLayoutChange);
+    document.removeEventListener("webkitfullscreenchange", handleVisualLayoutChange);
+    globalThis.removeEventListener?.("resize", handleVisualLayoutChange);
+    layoutObserver?.disconnect();
+    layoutObserver = null;
+    observedLayoutVideo = null;
+    layoutRetryTimer = 0;
+    document.querySelectorAll(".ytlang-toast").forEach((toast) => toast.remove());
+    if (instanceConflictWinnerId && !instanceConflictCheckTimer) {
+      instanceConflictCheckTimer = globalThis.setInterval(() => {
+        evaluateDiscoveredInstance(instanceConflictWinnerId);
+      }, 30_000);
+    }
+  }
+
+  function handleInstanceEvaluation(response) {
+    if (response?.conflict?.active) {
+      suspendForInstanceConflict(response.conflict);
+      return;
+    }
+    if (instanceConflictActive) {
+      if (instanceConflictCheckTimer) globalThis.clearInterval(instanceConflictCheckTimer);
+      instanceConflictCheckTimer = 0;
+      globalThis.location?.reload?.();
+    }
+  }
+
+  function evaluateDiscoveredInstance(extensionId) {
+    if (!extensionContextAvailable() || !InstanceCoordinator?.validExtensionId(extensionId)) return;
+    try {
+      chrome.runtime.sendMessage({ type: "ytlang:instance-peer", extensionId }, (response) => {
+        if (runtimeLastError()) return;
+        handleInstanceEvaluation(response);
+      });
+    } catch (error) {
+      handleChromeError(error);
+    }
+  }
+
+  function startInstanceCoordination() {
+    if (!InstanceCoordinator || !["chrome", "edge"].includes(Platform.target)) return;
+    const ownId = String(chrome.runtime?.id || "");
+    if (!InstanceCoordinator.validExtensionId(ownId)) return;
+    const seen = new Set([ownId]);
+    const scan = () => {
+      document.querySelectorAll(`meta[name="${InstanceCoordinator.MARKER_NAME}"]`).forEach((marker) => {
+        const extensionId = String(marker.getAttribute("data-extension-id") || "");
+        if (seen.has(extensionId) || !InstanceCoordinator.validExtensionId(extensionId)) return;
+        seen.add(extensionId);
+        evaluateDiscoveredInstance(extensionId);
+      });
+    };
+    const publish = () => {
+      if (!extensionContextAvailable() || !document.documentElement || instanceMarker) return;
+      instanceMarker = document.createElement("meta");
+      instanceMarker.setAttribute("name", InstanceCoordinator.MARKER_NAME);
+      instanceMarker.setAttribute("data-extension-id", ownId);
+      instanceMarker.setAttribute("data-protocol", String(InstanceCoordinator.PROTOCOL_VERSION));
+      instanceMarker.setAttribute("data-distribution", InstanceCoordinator.classifyDistribution(
+        ownId,
+        globalThis.YTLangBuildInfo?.distribution
+      ));
+      document.documentElement.append(instanceMarker);
+      instanceMarkerObserver = new MutationObserver(scan);
+      instanceMarkerObserver.observe(document.documentElement, { childList: true });
+      scan();
+    };
+    if (document.documentElement) publish();
+    else globalThis.setTimeout(publish, 0);
   }
 
   function handleChromeError(error) {
@@ -831,6 +932,11 @@
   }
 
   function handleRuntimeMessage(message, sender, sendResponse) {
+    if (message?.type === "ytlang:instance-conflict") {
+      handleInstanceEvaluation({ conflict: message.conflict });
+      sendResponse({ ok: true, suspended: Boolean(message.conflict?.active) });
+      return false;
+    }
     if (!ensureExtensionContext()) return false;
     if (message?.type === "ytlang:settings-updated") {
       if (typeof message.vipActive === "boolean") vipActive = message.vipActive;
@@ -867,6 +973,7 @@
 
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   runtimeMessageListenerRegistered = true;
+  startInstanceCoordination();
 
   loadSettings().then((loaded) => {
     if (!loaded || !ensureExtensionContext()) return;

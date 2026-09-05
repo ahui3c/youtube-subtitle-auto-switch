@@ -14,7 +14,12 @@
     "https://myapp.ahui3c.com/*"
   ],
   "background": {
-    "service_worker": "src/background.js"
+    "scripts": [
+      "src/build-info.js",
+      "src/instance-coordinator.js",
+      "src/platform.js",
+      "src/background.js"
+    ]
   },
   "icons": {
     "16": "icons/enabled-16.png",
@@ -58,5 +63,17 @@
       "run_at": "document_start"
     }
   ],
-  "minimum_chrome_version": "111"
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "youtube-subtitle-auto-switch@ahui3c.com",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "personallyIdentifyingInfo",
+          "authenticationInfo",
+          "browsingActivity"
+        ]
+      }
+    }
+  }
 }

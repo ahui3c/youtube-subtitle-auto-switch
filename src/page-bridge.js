@@ -1,6 +1,9 @@
 (function initPageBridge() {
   "use strict";
 
+  if (globalThis.__YTLANG_PAGE_BRIDGE_ACTIVE__) return;
+  globalThis.__YTLANG_PAGE_BRIDGE_ACTIVE__ = true;
+
   let lastFingerprint = "";
   let pollTimer = null;
   let renderedCaptionVideoId = "";

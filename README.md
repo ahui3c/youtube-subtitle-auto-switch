@@ -6,7 +6,9 @@
 
 ## 繁體中文（預設）
 
-「Youtube 字幕全自動開關」是以 Chrome Manifest V3 正式版為主、並共用核心支援 Safari Mac 開發版的瀏覽器擴充功能，會依照使用者設定的優先順序，自動為 YouTube 影片選擇、開啟或關閉最合適的字幕。目前不製作 iPhone 或 iPad 版本。
+「Youtube 字幕全自動開關」是以 Chrome Manifest V3 正式版為主，並以獨立封裝共用核心支援 Firefox 桌面測試版與 Safari Mac 開發版的瀏覽器擴充功能，會依照使用者設定的優先順序，自動為 YouTube 影片選擇、開啟或關閉最合適的字幕。目前不製作 iPhone 或 iPad 版本。
+
+> Firefox 版本目前仍在測試中，可能存在與 Chrome 正式版不同的瀏覽器相容性問題；請優先由 GitHub Release 下載並回報測試結果。
 
 ### 主要功能
 
@@ -32,6 +34,7 @@
 - 分頁進入背景、沒有 CC、OCR 判斷完成或總功能關閉時會解除字幕監聽；若已選擇本機轉換，為了持續處理後續字幕，OCR 完成後仍保留必要的文字轉換監聽。
 - OpenCC 詞庫只在選擇「本機轉換」且字幕實際需要轉換時載入目前 YouTube 分頁；預設 YouTube 翻譯模式不載入詞庫。
 - 執行狀態沒有變化時不會重複寫入 `chrome.storage.local`。
+- Chrome 同時安裝商店版與未封裝版時，含有實例協調功能的版本會互相驗證產品識別、版本號及建置身分；正式商店版以 Chrome 商店固定 ID 辨識，解壓同一份 ZIP 後手動載入仍會正確視為開發版。較新版本自動接管，較舊版本顯示 `OLD` 並暫停全部功能。相同版本時由未封裝開發版優先，Chrome 商店版暫停；若版本與建置身分都相同，才依固定插件 ID 規則決勝，而且不會改寫原本的總開關設定。
 
 ### 預設字幕規則
 
@@ -61,10 +64,11 @@
 pnpm install
 pnpm run test
 pnpm run build:chrome
+pnpm run build:firefox
 pnpm run build:safari
 ```
 
-Chrome 建置仍輸出到 `dist`；Safari Mac 的共用核心建置輸出到 `dist-safari`。Safari 正式封裝與簽署必須在 Mac 上透過 Xcode 的 `safari-web-extension-packager` 完成，請參閱 [`docs/safari-macos.md`](docs/safari-macos.md)。Safari Mac 的內嵌字幕偵測暫列為實驗性功能。
+Chrome 建置仍輸出到 `dist`；Firefox 輸出到 `dist-firefox`；Safari Mac 的共用核心建置輸出到 `dist-safari`。Firefox 開發與送審說明請參閱 [`docs/firefox.md`](docs/firefox.md)。Safari 正式封裝與簽署必須在 Mac 上透過 Xcode 的 `safari-web-extension-packager` 完成，請參閱 [`docs/safari-macos.md`](docs/safari-macos.md)。Safari Mac 的內嵌字幕偵測暫列為實驗性功能。
 
 目前測試涵蓋字幕優先順序、個別規則開關、通用中文字幕、OpenCC 台灣慣用詞、香港常見口語、自訂替換、背景擷取授權、工具列圖示狀態，以及內嵌字幕影像判斷。
 
@@ -89,11 +93,13 @@ Chrome 建置仍輸出到 `dist`；Safari Mac 的共用核心建置輸出到 `di
 
 YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功能透過播放器網頁介面的字幕模組套用字幕軌；YouTube 改版後可能需要更新介接程式。
 
+插件實例協調需要兩個版本都已包含此機制；先前已發布且尚未更新的舊版不會主動公告自身，因此新版無法保證自動關閉該舊版。首次升級至支援版本時，建議先停用更舊的未封裝測試版，之後的版本即可自動協調。
+
 ---
 
 ## English
 
-**Youtube Subtitle Auto Switch** is a Chrome Manifest V3 extension that automatically selects, enables, or disables the most suitable YouTube caption track according to a user-configurable priority list.
+**Youtube Subtitle Auto Switch** uses a Chrome-first Manifest V3 core with separate Firefox desktop and Safari Mac packages. It automatically selects, enables, or disables the most suitable YouTube caption track according to a user-configurable priority list.
 
 ### Features
 
@@ -107,6 +113,8 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 - Every caption rule can be reordered or individually enabled and disabled.
 - Manual English, automatic English, and other translatable languages are disabled by default.
 - Supports YouTube's single-page navigation between videos.
+- When Chrome has both packaged and unpacked builds installed, coordination-enabled versions authenticate each other, compare versions, and suspend the older instance without changing the user's saved master-switch preference.
+- If both Chrome instances have the same version, the unpacked development build takes priority over the Chrome Web Store build; instances with the same version and distribution use a stable extension-ID tiebreak.
 - Shows a colored toolbar icon while enabled and a grayscale icon while disabled.
 - Includes an optional experimental detector for burned-in captions. When embedded captions are detected, YouTube CC is disabled to prevent duplicated subtitles.
 - By default, embedded-caption detection is skipped when a video has Simplified Chinese CC but no Traditional Chinese track. Caption translation and local text post-processing continue normally, and this exception can be disabled.
@@ -126,10 +134,11 @@ YouTube 沒有公開提供指定字幕軌的正式 Web Player API。本擴充功
 ```powershell
 pnpm install
 pnpm run test
-pnpm run build
+pnpm run build:chrome
+pnpm run build:firefox
 ```
 
-Load the generated `dist` directory as an unpacked extension.
+Load `dist` as the unpacked Chrome extension or `dist-firefox` as a temporary Firefox add-on. The Firefox package uses an independent manifest and output directory, so building it does not overwrite the Chrome build.
 
 ### Permissions and Privacy
 

@@ -1,23 +1,38 @@
 (function initYTLangPlatform(global) {
   "use strict";
 
-  const api = global.chrome || global.browser || null;
+  const candidateApi = global.chrome || global.browser || null;
   let runtimeUrl = "";
   try {
-    runtimeUrl = String(api?.runtime?.getURL?.("") || "");
+    runtimeUrl = String(candidateApi?.runtime?.getURL?.("") || "");
   } catch {}
 
   const safariScheme = runtimeUrl.startsWith("safari-web-extension://");
-  const safariUserAgent = /\bSafari\//.test(String(global.navigator?.userAgent || ""))
-    && !/\b(?:Chrome|Chromium|Edg)\//.test(String(global.navigator?.userAgent || ""));
-  const browser = safariScheme || safariUserAgent ? "safari" : "chrome";
+  const firefoxScheme = runtimeUrl.startsWith("moz-extension://");
+  const userAgent = String(global.navigator?.userAgent || "");
+  const firefoxUserAgent = /\bFirefox\//.test(userAgent);
+  const edgeUserAgent = /\bEdg(?:A|iOS)?\//.test(userAgent);
+  const safariUserAgent = /\bSafari\//.test(userAgent)
+    && !/\b(?:Chrome|Chromium|Edg)\//.test(userAgent);
+  const browser = firefoxScheme || firefoxUserAgent
+    ? "firefox"
+    : safariScheme || safariUserAgent
+      ? "safari"
+      : edgeUserAgent
+        ? "edge"
+        : "chrome";
+  const api = browser === "firefox"
+    ? (global.browser || candidateApi)
+    : candidateApi;
 
   const platform = Object.freeze({
     api,
     browser,
     isChrome: browser === "chrome",
+    isEdge: browser === "edge",
+    isFirefox: browser === "firefox",
     isSafari: browser === "safari",
-    target: browser === "safari" ? "safari-macos" : "chrome",
+    target: browser === "safari" ? "safari-macos" : browser,
     capabilities: Object.freeze({
       embeddedSubtitleDetection: Object.freeze({
         available: typeof api?.tabs?.captureVisibleTab === "function",

@@ -23,6 +23,8 @@ let entitlementResult = null;
 let extensionTokenResult = null;
 let oauthRedirectUrl = "";
 let cloudRemote = { revision: 0, updatedAt: "", customReplacements: [], channelRules: [] };
+let externalMessageListener;
+const peerInstances = new Map();
 
 globalThis.fetch = async (url, options = {}) => {
   if (String(url).endsWith("/api/auth/status")) {
@@ -61,6 +63,8 @@ globalThis.fetch = async (url, options = {}) => {
 
 globalThis.chrome = {
   runtime: {
+    id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    getManifest() { return { version: "0.5.0" }; },
     lastError: undefined,
     onInstalled: { addListener() {} },
     onStartup: { addListener() {} },
@@ -68,6 +72,16 @@ globalThis.chrome = {
       addListener(listener) {
         messageListener = listener;
       }
+    },
+    onMessageExternal: {
+      addListener(listener) {
+        externalMessageListener = listener;
+      }
+    },
+    sendMessage(extensionId, message, callback) {
+      const response = peerInstances.get(extensionId) || null;
+      callback?.(response);
+      return Promise.resolve(response);
     }
   },
   storage: {
@@ -153,6 +167,8 @@ globalThis.chrome = {
   }
 };
 
+await import("../src/build-info.js");
+await import("../src/instance-coordinator.js");
 await import("../src/background.js");
 await new Promise((resolve) => setImmediate(resolve));
 
@@ -239,7 +255,7 @@ test("Google OAuth 尚未設定時會開啟會員中心並回傳明確訊息", a
   const response = await sendMessage({ type: "ytlang:vip-login" });
   assert.equal(response.ok, false);
   assert.match(response.message, /Google 登入服務尚未完成設定/);
-  assert.equal(openedTabUrl, "https://myapp.ahui3c.com/account?source=extension&error=google_not_configured");
+  assert.equal(openedTabUrl, "https://myapp.ahui3c.com/account?source=extension&platform=chrome&error=google_not_configured");
   assert.match(localStorage.vipAuthNotice.message, /已開啟會員中心/);
 });
 
@@ -271,7 +287,7 @@ test("尚未購買 VIP 時連接會啟用 24 小時試用並可繼續前往購�
   assert.equal(response.entitlement.trialActive, true);
   assert.equal(response.entitlement.paidVipActive, false);
   assert.equal(localStorage.vipAccessToken, "access-token");
-  assert.equal(openedTabUrl, "https://myapp.ahui3c.com/checkout");
+  assert.equal(openedTabUrl, "https://myapp.ahui3c.com/checkout?platform=chrome");
 
   oauthRedirectUrl = "";
   extensionTokenResult = null;
@@ -454,9 +470,53 @@ test("問題回報入口只會帶入安全的 YouTube HTTPS 網址", async () =>
   assert.equal(safeUrl.origin, "https://myapp.ahui3c.com");
   assert.equal(safeUrl.pathname, "/feedback");
   assert.equal(safeUrl.searchParams.get("source"), "extension");
+  assert.equal(safeUrl.searchParams.get("platform"), "chrome");
   assert.equal(safeUrl.searchParams.get("video_url"), "https://www.youtube.com/watch?v=test");
 
   await sendMessage({ type: "ytlang:open-feedback", videoUrl: "https://example.com/steal" });
   const rejectedUrl = new URL(openedTabUrl);
   assert.equal(rejectedUrl.searchParams.has("video_url"), false);
+});
+
+test("同產品較新插件會接管且舊插件只進入暫停狀態", async () => {
+  const peerId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  peerInstances.set(peerId, {
+    product: "ahui3c.youtube-subtitle-auto-switch",
+    protocolVersion: 1,
+    extensionId: peerId,
+    version: "0.6.0"
+  });
+  const response = await sendMessage({ type: "ytlang:instance-peer", extensionId: peerId });
+  assert.equal(response.ok, true);
+  assert.equal(response.conflict.active, true);
+  assert.equal(response.conflict.winnerVersion, "0.6.0");
+  assert.equal(lastBadgeText, "OLD");
+  assert.match(lastTitle, /另一個優先版本 v0\.6\.0 已接管/);
+
+  let externalResponse;
+  externalMessageListener({
+    type: "ytlang:instance-info",
+    product: "ahui3c.youtube-subtitle-auto-switch",
+    protocolVersion: 1
+  }, { id: peerId }, (value) => { externalResponse = value; });
+  assert.equal(externalResponse.extensionId, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+  assert.equal(externalResponse.version, "0.5.0");
+  assert.equal(externalResponse.distribution, "development");
+});
+
+test("同版號時開發版不會被 Chrome 商店版接管", async () => {
+  peerInstances.delete("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  await sendMessage({ type: "ytlang:instance-peer", extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+  const peerId = "cccccccccccccccccccccccccccccccc";
+  peerInstances.set(peerId, {
+    product: "ahui3c.youtube-subtitle-auto-switch",
+    protocolVersion: 1,
+    extensionId: peerId,
+    version: "0.5.0",
+    distribution: "chrome-web-store"
+  });
+  const response = await sendMessage({ type: "ytlang:instance-peer", extensionId: peerId });
+  assert.equal(response.ok, true);
+  assert.equal(response.conflict, null);
+  assert.notEqual(lastBadgeText, "OLD");
 });

@@ -1,20 +1,30 @@
 "use strict";
 
 if (typeof importScripts === "function") {
+  try { importScripts("build-info.js"); } catch {}
+  try { importScripts("instance-coordinator.js"); } catch {}
   try { importScripts("platform.js"); } catch {}
 }
+const InstanceCoordinator = globalThis.YTLangInstanceCoordinator || null;
 const Platform = globalThis.YTLangPlatform || {
+  api: globalThis.chrome || globalThis.browser,
+  target: "chrome",
+  isEdge: false,
+  isFirefox: false,
   isSafari: false,
   capabilities: {
     embeddedSubtitleDetection: { available: typeof globalThis.chrome?.tabs?.captureVisibleTab === "function", experimental: false },
     extensionIdentity: { available: typeof globalThis.chrome?.identity?.launchWebAuthFlow === "function" }
   }
 };
+const CLIENT_PLATFORM = ["chrome", "edge", "firefox", "safari-macos"].includes(Platform.target)
+  ? Platform.target
+  : "unknown";
 
 const ACTION_ICON_SIZES = [16, 32, 48, 128];
 const VIP_SITE = "https://myapp.ahui3c.com";
 const VIP_AUTH_STATUS_URL = `${VIP_SITE}/api/auth/status`;
-const VIP_ACCOUNT_SETUP_URL = `${VIP_SITE}/account?source=extension&error=google_not_configured`;
+const VIP_ACCOUNT_SETUP_URL = `${VIP_SITE}/account?source=extension&platform=${encodeURIComponent(CLIENT_PLATFORM)}&error=google_not_configured`;
 const CLOUD_SYNC_URL = `${VIP_SITE}/api/extension/sync`;
 const MAX_CUSTOM_REPLACEMENTS = 100;
 const MAX_CHANNEL_RULES = 50;
@@ -22,6 +32,15 @@ const VIP_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const VIP_OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 const VIP_RETRY_BASE_MS = 60 * 1000;
 const VIP_RETRY_MAX_MS = 60 * 60 * 1000;
+const OWN_INSTANCE = Object.freeze({
+  extensionId: String(globalThis.chrome?.runtime?.id || ""),
+  version: String(globalThis.chrome?.runtime?.getManifest?.().version || "0.0.0"),
+  distribution: InstanceCoordinator?.classifyDistribution(
+    globalThis.chrome?.runtime?.id,
+    globalThis.YTLangBuildInfo?.distribution
+  ) || "unknown"
+});
+let instanceConflict = null;
 const CHANNEL_RULE_MODES = new Set([
   "disabled",
   "force-enable-no-ocr",
@@ -35,6 +54,7 @@ let vipRefreshPromise = null;
 function feedbackPageUrl(videoUrl) {
   const url = new URL(`${VIP_SITE}/feedback`);
   url.searchParams.set("source", "extension");
+  url.searchParams.set("platform", CLIENT_PLATFORM);
   try {
     const video = new URL(String(videoUrl || ""));
     const hostname = video.hostname.toLowerCase();
@@ -337,7 +357,7 @@ async function connectVipAccount() {
       ? "Safari Mac 的帳號連接仍需在 Mac／Xcode 完成驗證，已開啟會員中心。"
       : "目前瀏覽器不支援插件帳號連接，已開啟會員中心。";
     await storeVipAuthNotice(message);
-    await chrome.tabs.create({ url: `${VIP_SITE}/account?source=${Platform.isSafari ? "safari-extension" : "extension"}` });
+    await chrome.tabs.create({ url: `${VIP_SITE}/account?source=extension&platform=${encodeURIComponent(CLIENT_PLATFORM)}` });
     throw new Error(message);
   }
   const googleReady = await checkGoogleAuthReady();
@@ -348,15 +368,18 @@ async function connectVipAccount() {
     throw new Error(message);
   }
   const redirectUri = chrome.identity.getRedirectURL("vip");
-  const authorizeUrl = `${VIP_SITE}/extension/connect?redirect_uri=${encodeURIComponent(redirectUri)}`;
+  const authorizeUrl = `${VIP_SITE}/extension/connect?redirect_uri=${encodeURIComponent(redirectUri)}&platform=${encodeURIComponent(CLIENT_PLATFORM)}`;
   const callbackUrl = new URL(await launchWebAuthFlow(authorizeUrl));
   const code = callbackUrl.searchParams.get("code");
   const purchaseAfterConnect = callbackUrl.searchParams.get("purchase") === "1";
+  const callbackPlatform = ["chrome", "edge", "firefox", "safari-macos"].includes(callbackUrl.searchParams.get("platform"))
+    ? callbackUrl.searchParams.get("platform")
+    : CLIENT_PLATFORM;
   if (!code) throw new Error("網站沒有回傳插件授權碼");
   const response = await fetch(`${VIP_SITE}/api/extension/token`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, redirectUri })
+    body: JSON.stringify({ code, redirectUri, platform: callbackPlatform })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.accessToken) throw new Error("無法完成插件授權");
@@ -370,7 +393,7 @@ async function connectVipAccount() {
     verificationStatus: "verified"
   });
   if (purchaseAfterConnect && entitlement.paidVipActive !== true) {
-    await chrome.tabs.create({ url: `${VIP_SITE}/checkout` });
+    await chrome.tabs.create({ url: `${VIP_SITE}/checkout?platform=${encodeURIComponent(callbackPlatform)}` });
   }
   return entitlement;
 }
@@ -619,6 +642,81 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function externalInstanceInfo(extensionId) {
+  return new Promise((resolve) => {
+    if (!InstanceCoordinator?.validExtensionId(extensionId) || extensionId === OWN_INSTANCE.extensionId) {
+      resolve(null);
+      return;
+    }
+    try {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value || null);
+      };
+      const pending = chrome.runtime.sendMessage(extensionId, {
+        type: "ytlang:instance-info",
+        product: InstanceCoordinator.PRODUCT,
+        protocolVersion: InstanceCoordinator.PROTOCOL_VERSION,
+        distribution: OWN_INSTANCE.distribution
+      }, (response) => finish(chrome.runtime.lastError ? null : response));
+      if (pending?.then) pending.then(finish).catch(() => finish(null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function broadcastInstanceConflict() {
+  try {
+    const tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
+    await Promise.allSettled((tabs || []).filter((tab) => Number.isInteger(tab.id)).map((tab) =>
+      chrome.tabs.sendMessage(tab.id, { type: "ytlang:instance-conflict", conflict: instanceConflict })
+    ));
+  } catch {}
+}
+
+async function setInstanceConflict(conflict) {
+  instanceConflict = conflict || null;
+  await updateActionState(true);
+  await broadcastInstanceConflict();
+}
+
+async function evaluatePeerInstance(extensionId) {
+  if (!InstanceCoordinator || !["chrome", "edge"].includes(Platform.target)) return null;
+  const peer = await externalInstanceInfo(extensionId);
+  const validPeer = peer
+    && peer.product === InstanceCoordinator.PRODUCT
+    && peer.protocolVersion === InstanceCoordinator.PROTOCOL_VERSION
+    && peer.extensionId === extensionId
+    && InstanceCoordinator.validExtensionId(peer.extensionId);
+  if (!validPeer) {
+    if (instanceConflict?.winnerExtensionId === extensionId) await setInstanceConflict(null);
+    return instanceConflict;
+  }
+  const winner = InstanceCoordinator.preferredInstance(OWN_INSTANCE, peer);
+  if (winner.extensionId !== OWN_INSTANCE.extensionId) {
+    await setInstanceConflict({
+      active: true,
+      winnerExtensionId: peer.extensionId,
+      winnerVersion: peer.version,
+      winnerDistribution: peer.distribution,
+      currentVersion: OWN_INSTANCE.version,
+      currentDistribution: OWN_INSTANCE.distribution,
+      reason: InstanceCoordinator.compareVersions(peer.version, OWN_INSTANCE.version) > 0
+        ? "newer-version"
+        : peer.distribution === InstanceCoordinator.DEVELOPMENT_DISTRIBUTION
+          && OWN_INSTANCE.distribution === InstanceCoordinator.CHROME_STORE_DISTRIBUTION
+          ? "same-version-development-priority"
+          : "same-version-tiebreak"
+    });
+  } else if (instanceConflict?.winnerExtensionId === peer.extensionId) {
+    await setInstanceConflict(null);
+  }
+  return instanceConflict;
+}
+
 async function setActionIconSafely(enabled) {
   const path = actionIconPaths(enabled);
   const retryDelays = [0, 80, 240];
@@ -636,11 +734,14 @@ async function setActionIconSafely(enabled) {
 }
 
 async function updateActionState(enabled) {
+  const effectiveEnabled = enabled && !instanceConflict?.active;
   const results = await Promise.allSettled([
-    setActionIconSafely(enabled),
-    chrome.action.setTitle({ title: `Youtube 字幕全自動開關：${enabled ? "已開啟" : "已關閉"}` }),
-    chrome.action.setBadgeText({ text: enabled ? "" : "OFF" }),
-    chrome.action.setBadgeBackgroundColor({ color: "#7A8288" })
+    setActionIconSafely(effectiveEnabled),
+    chrome.action.setTitle({ title: instanceConflict?.active
+      ? `Youtube 字幕全自動開關：另一個優先版本 v${instanceConflict.winnerVersion} 已接管`
+      : `Youtube 字幕全自動開關：${enabled ? "已開啟" : "已關閉"}` }),
+    chrome.action.setBadgeText({ text: instanceConflict?.active ? "OLD" : effectiveEnabled ? "" : "OFF" }),
+    chrome.action.setBadgeBackgroundColor({ color: instanceConflict?.active ? "#C04B3F" : "#7A8288" })
   ]);
   return results.every((result) => result.status === "fulfilled");
 }
@@ -669,7 +770,37 @@ chrome.runtime.onStartup.addListener(() => {
 });
 void syncActionState();
 
+if (InstanceCoordinator && ["chrome", "edge"].includes(Platform.target) && chrome.runtime.onMessageExternal?.addListener) {
+  chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+    if (message?.type !== "ytlang:instance-info"
+      || message.product !== InstanceCoordinator.PRODUCT
+      || message.protocolVersion !== InstanceCoordinator.PROTOCOL_VERSION
+      || !InstanceCoordinator.validExtensionId(sender?.id)
+      || sender.id === OWN_INSTANCE.extensionId) return false;
+    sendResponse({
+      product: InstanceCoordinator.PRODUCT,
+      protocolVersion: InstanceCoordinator.PROTOCOL_VERSION,
+      extensionId: OWN_INSTANCE.extensionId,
+      version: OWN_INSTANCE.version,
+      distribution: OWN_INSTANCE.distribution
+    });
+    return false;
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "ytlang:instance-peer") {
+    evaluatePeerInstance(String(message.extensionId || ""))
+      .then((conflict) => sendResponse({ ok: true, conflict }))
+      .catch((error) => sendResponse({ ok: false, message: error.message }));
+    return true;
+  }
+
+  if (message?.type === "ytlang:instance-conflict-status") {
+    sendResponse({ ok: true, conflict: instanceConflict });
+    return false;
+  }
+
   if (message?.type === "ytlang:vip-get-status") {
     refreshVipEntitlement(message.force === true)
       .then((entitlement) => sendResponse({ ok: true, entitlement }))

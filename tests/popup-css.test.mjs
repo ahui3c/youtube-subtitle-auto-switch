@@ -6,6 +6,15 @@ const css = await readFile(new URL("../src/popup.css", import.meta.url), "utf8")
 const html = await readFile(new URL("../src/popup.html", import.meta.url), "utf8");
 const js = await readFile(new URL("../src/popup.js", import.meta.url), "utf8");
 
+test("面板標題使用字幕品牌圖示並保留完整標題層級", () => {
+  assert.match(html, /class="masthead-brand"/);
+  assert.match(html, /class="masthead-icon" src="\.\.\/icons\/enabled-128\.png" alt="" width="46" height="46"/);
+  assert.match(html, /<p class="eyebrow">FULL AUTO CAPTION CONTROL<\/p>/);
+  assert.match(html, /<h1>Youtube 字幕全自動開關<\/h1>/);
+  assert.match(css, /\.masthead-brand\s*\{[^}]*grid-template-columns:\s*46px minmax\(0, 1fr\)/s);
+  assert.match(css, /h1\s*\{[^}]*white-space:\s*nowrap;/s);
+});
+
 test("YouTube 翻譯模式會讓鎖定功能的標題與自訂替換開關變暗", () => {
   assert.match(css, /\.terms-section\.is-locked \.feature-title-row h2,\s*\.custom-section\.is-locked \.feature-title-row h2\s*\{\s*color:\s*#718593;\s*\}/);
   assert.match(css, /\.custom-section\.is-locked > \.section-heading \.inline-switch,\s*\.custom-section\.is-vip-locked > \.section-heading \.inline-switch,\s*\.cloud-sync-section\.is-vip-locked > \.section-heading \.inline-switch\s*\{\s*opacity:\s*\.48;\s*\}/);
@@ -123,4 +132,12 @@ test("插件提供登入後前往網站填寫的問題回報入口", () => {
   assert.match(js, /ytlang:open-feedback/);
   assert.match(js, /videoUrl:\s*activeTab\?\.url/);
   assert.match(css, /\.feedback-section\s*\{/);
+});
+
+test("較舊實例的面板會明確顯示暫停並鎖定全部操作", () => {
+  assert.match(html, /id="instance-conflict"/);
+  assert.match(html, /此版本已暫停運作/);
+  assert.match(js, /ytlang:instance-conflict-status/);
+  assert.match(js, /document\.querySelectorAll\("button, input, select, textarea"\)/);
+  assert.match(css, /body\.has-instance-conflict/);
 });

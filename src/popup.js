@@ -44,6 +44,8 @@
   const cloudSyncUseCloud = document.getElementById("cloud-sync-use-cloud");
   const cloudSyncManage = document.getElementById("cloud-sync-manage");
   const openFeedback = document.getElementById("open-feedback");
+  const instanceConflict = document.getElementById("instance-conflict");
+  const instanceConflictDetail = document.getElementById("instance-conflict-detail");
   const CHANNEL_MODE_LABELS = Object.freeze({
     disabled: "停用全部功能",
     "force-enable-no-ocr": "強制開啟字幕",
@@ -214,8 +216,13 @@
       const ruleEnabled = !disabledRules.has(id);
       const item = document.createElement("li");
       item.className = `track${ruleEnabled ? "" : " is-disabled"}${id === firstEnabledId ? " is-route-start" : ""}`;
-      item.innerHTML = `<span class="track-index">${String(index + 1).padStart(2, "0")}</span><span class="track-name"></span>`;
-      item.querySelector(".track-name").textContent = rule.label;
+      const trackIndex = document.createElement("span");
+      trackIndex.className = "track-index";
+      trackIndex.textContent = String(index + 1).padStart(2, "0");
+      const trackName = document.createElement("span");
+      trackName.className = "track-name";
+      trackName.textContent = rule.label;
+      item.append(trackIndex, trackName);
       const actions = document.createElement("div");
       actions.className = "track-actions";
       const toggle = document.createElement("label");
@@ -683,6 +690,20 @@
   });
 
   async function start() {
+    const manifestVersion = chrome.runtime.getManifest?.().version;
+    versionLabel.textContent = manifestVersion ? `v${manifestVersion}` : "";
+    const coordination = await sendToRuntime({ type: "ytlang:instance-conflict-status" });
+    if (coordination?.conflict?.active) {
+      document.body.classList.add("has-instance-conflict");
+      instanceConflict.hidden = false;
+      const sameVersionDevelopment = coordination.conflict.reason === "same-version-development-priority";
+      instanceConflictDetail.textContent = sameVersionDevelopment
+        ? `偵測到同版號的開發版 v${coordination.conflict.winnerVersion}，依設定由開發版優先接管；Chrome 商店版已暫停全部功能。`
+        : `偵測到另一個優先版本 v${coordination.conflict.winnerVersion}，為避免兩套插件同時控制字幕，本版本 v${coordination.conflict.currentVersion} 已暫停全部功能。`;
+      document.querySelectorAll("button, input, select, textarea").forEach((control) => { control.disabled = true; });
+      saveStatus.textContent = "優先版本已接管";
+      return;
+    }
     const [stored, tab, local] = await Promise.all([
       getSync("settings"),
       queryActiveTab(),
@@ -705,8 +726,6 @@
     activeTab = tab;
     vipEntitlement = local.vipEntitlement || vipEntitlement;
     cloudSyncState = { ...cloudSyncState, ...(local.cloudSyncState || {}) };
-    const manifestVersion = chrome.runtime.getManifest?.().version;
-    versionLabel.textContent = manifestVersion ? `v${manifestVersion}` : "";
     renderVipAccount();
     if (local.vipAuthNotice?.message && Date.now() - Number(local.vipAuthNotice.createdAt || 0) < 10 * 60 * 1000) {
       vipAccountDetail.textContent = local.vipAuthNotice.message;

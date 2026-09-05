@@ -9,9 +9,12 @@
 <body>
   <main class="shell">
     <header class="masthead">
-      <div>
-        <p class="eyebrow">FULL AUTO CAPTION CONTROL</p>
-        <h1>Youtube 字幕全自動開關</h1>
+      <div class="masthead-brand">
+        <img class="masthead-icon" src="../icons/enabled-128.png" alt="" width="46" height="46">
+        <div class="masthead-copy">
+          <p class="eyebrow">FULL AUTO CAPTION CONTROL</p>
+          <h1>Youtube 字幕全自動開關</h1>
+        </div>
       </div>
       <label class="master-switch">
         <input id="enabled" type="checkbox">
@@ -19,6 +22,11 @@
         <b>啟用</b>
       </label>
     </header>
+
+    <section id="instance-conflict" class="instance-conflict" role="alert" hidden>
+      <strong>此版本已暫停運作</strong>
+      <span id="instance-conflict-detail">偵測到另一個較新的版本，為避免字幕功能互相衝突，本版本已關閉全部功能。</span>
+    </section>
 
     <section class="now-playing" aria-labelledby="now-title">
       <div class="signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
@@ -212,6 +220,8 @@
     </footer>
   </main>
   <script src="preview-shim.js"></script>
+  <script src="build-info.js"></script>
+  <script src="instance-coordinator.js"></script>
   <script src="platform.js"></script>
   <script src="core.js"></script>
   <script src="popup.js"></script>

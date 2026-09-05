@@ -35,6 +35,37 @@ button, input { font: inherit; }
   justify-content: space-between;
 }
 
+.masthead { gap: 12px; }
+.instance-conflict {
+  background: rgba(255, 122, 104, .12);
+  border: 1px solid rgba(255, 122, 104, .56);
+  border-radius: var(--card-radius);
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding: 12px 14px;
+}
+.instance-conflict[hidden] { display: none; }
+.instance-conflict strong { color: var(--alert); font-size: 13px; }
+.instance-conflict span { color: #d8e1e7; font-size: 10px; line-height: 1.55; }
+body.has-instance-conflict .shell > :not(.masthead):not(.instance-conflict):not(footer) { opacity: .38; pointer-events: none; }
+body.has-instance-conflict footer .primary { opacity: .38; pointer-events: none; }
+.masthead-brand {
+  align-items: center;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 10px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  min-width: 0;
+}
+.masthead-icon {
+  display: block;
+  height: 46px;
+  object-fit: contain;
+  width: 46px;
+}
+.masthead-copy { min-width: 0; }
+
 .eyebrow, .kicker {
   color: var(--route);
   font: 700 10px/1.2 Bahnschrift, "Arial Narrow", sans-serif;
@@ -44,9 +75,10 @@ button, input { font: inherit; }
 }
 
 h1 {
-  font: 650 24px/.95 Bahnschrift, "Microsoft JhengHei UI", sans-serif;
+  font: 650 21px/.95 Bahnschrift, "Microsoft JhengHei UI", sans-serif;
   letter-spacing: -.04em;
   margin: 0;
+  white-space: nowrap;
 }
 
 h2 { font-size: 16px; margin: 0; }
@@ -72,6 +104,7 @@ h2 { font-size: 16px; margin: 0; }
   display: inline-flex;
   gap: 8px;
 }
+.master-switch { flex: 0 0 auto; }
 
 .master-switch input, .inline-switch input { height: 1px; opacity: 0; position: absolute; width: 1px; }
 

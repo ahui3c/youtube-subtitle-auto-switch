@@ -1,7 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect x="7" y="7" width="114" height="114" rx="30" fill="#52D9C7" stroke="#0B1520" stroke-width="7"/>
-  <rect x="22" y="38" width="84" height="57" rx="14" fill="#0B1520"/>
-  <rect x="34" y="53" width="51" height="8" rx="4" fill="#F4F7F9"/>
-  <rect x="34" y="70" width="39" height="8" rx="4" fill="#F4F7F9"/>
-  <path d="M96 21l3.7 9.3L109 34l-9.3 3.7L96 47l-3.7-9.3L83 34l9.3-3.7L96 21z" fill="#FFD166"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">YTLang</title>
+  <desc id="desc">深色圓角方形中的紅色 YouTube 播放符號與青綠色字幕框</desc>
+  <defs>
+    <linearGradient id="tile" x1="74" y1="50" x2="438" y2="466" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24272E"/>
+      <stop offset="1" stop-color="#111318"/>
+    </linearGradient>
+    <linearGradient id="youtubeRed" x1="113" y1="102" x2="384" y2="316" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF4B3F"/>
+      <stop offset="1" stop-color="#FF2020"/>
+    </linearGradient>
+    <linearGradient id="captionTeal" x1="105" y1="275" x2="409" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#65E1D0"/>
+      <stop offset="1" stop-color="#2CC5B4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#tile)"/>
+  <rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="#F6F7F9" stroke-width="8"/>
+  <rect x="103" y="101" width="306" height="204" rx="62" fill="url(#youtubeRed)"/>
+  <path d="M225 151c0-12 13-19 23-13l96 58c10 6 10 21 0 27l-96 58c-10 6-23-1-23-13V151Z" fill="#FFF"/>
+  <path d="M105 263h302c18 0 32 14 32 32v104c0 18-14 32-32 32H229l-62 45 13-45h-75c-18 0-32-14-32-32V295c0-18 14-32 32-32Z" fill="url(#captionTeal)" stroke="#111318" stroke-width="18" stroke-linejoin="round"/>
+  <rect x="123" y="309" width="238" height="20" rx="10" fill="#111318"/>
+  <rect x="123" y="354" width="181" height="20" rx="10" fill="#111318"/>
 </svg>
